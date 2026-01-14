@@ -18,5 +18,8 @@
     "tsx": "^4.19.2",
     "typescript": "~5.8.0",
     "viem": "^2.44.1"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.4.0"
   }
 }

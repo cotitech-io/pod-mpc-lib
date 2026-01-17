@@ -14,6 +14,7 @@ interface IInboxMiner {
         bytes errorMessage;
     }
 
-    function batchProcessRequests(uint sourceChainId, MinedRequest[] memory mined, MinedError[] memory minedErrors) external;
-    function getPendingRequests(uint sourceChainId, uint from, uint length) external view returns (IInbox.Request[] memory);
+    function batchProcessRequests(
+        uint sourceChainId, MinedRequest[] memory mined, MinedError[] memory minedErrors
+    ) external;
 }

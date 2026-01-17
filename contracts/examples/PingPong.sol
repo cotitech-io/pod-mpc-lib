@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import "../InboxUser.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract Ping is InboxUser {
+contract Ping is InboxUser, Ownable {
     uint peerChainId;
     address peerContract;
 

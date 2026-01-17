@@ -18,14 +18,19 @@ contract InboxBase is IInbox {
     // Current execution context for incoming messages (used during message execution)
     ExecutionContext internal _currentContext;
     
-    // Request epoch for generating unique request IDs (starts at 1)
-    uint256 internal _requestEpoch;
+    // Request nonce for generating unique request IDs (starts at 1)
+    uint256 internal _requestNonce;
     
     // Incoming requests (requests that need to be delivered to target contracts on this chain)
     mapping(bytes32 => Request) public incomingRequests;
     
     // Mapping to track source contracts for incoming requests
     mapping(bytes32 => address) internal _requestSourceContracts;
+    
+    /// @notice Hook for tracking newly created outgoing requests
+    /// @dev Override in Inbox to add requests to pending queues
+    /// @param requestId The request ID that was created
+    function _trackPendingRequest(bytes32 requestId) internal virtual {}
     
     event MessageSent(
         bytes32 indexed requestId,
@@ -85,11 +90,11 @@ contract InboxBase is IInbox {
         require(targetChainId != chainId, "Inbox: cannot send to same chain");
         require(targetContract != address(0), "Inbox: invalid target contract");
         
-        // Increment epoch (starts at 1)
-        ++_requestEpoch;
+        // Increment nonce (starts at 1)
+        ++_requestNonce;
         
-        // Generate requestId from chainId and epoch
-        bytes32 requestId = keccak256(abi.encodePacked(chainId, _requestEpoch));
+        // Generate requestId from chainId and nonce (128-bit each)
+        bytes32 requestId = _packRequestId(chainId, _requestNonce);
         
         Request memory request = Request({
             requestId: requestId,
@@ -107,6 +112,7 @@ contract InboxBase is IInbox {
         });
         
         requests[requestId] = request;
+        _trackPendingRequest(requestId);
         
         emit MessageSent(
             requestId,
@@ -145,11 +151,11 @@ contract InboxBase is IInbox {
         require(targetChainId != chainId, "Inbox: cannot send to same chain");
         require(targetContract != address(0), "Inbox: invalid target contract");
         
-        // Increment epoch (starts at 1)
-        ++_requestEpoch;
+        // Increment nonce (starts at 1)
+        ++_requestNonce;
         
-        // Generate requestId from chainId and epoch
-        bytes32 requestId = keccak256(abi.encodePacked(chainId, _requestEpoch));
+        // Generate requestId from chainId and nonce (128-bit each)
+        bytes32 requestId = _packRequestId(chainId, _requestNonce);
         
         Request memory request = Request({
             requestId: requestId,
@@ -167,6 +173,7 @@ contract InboxBase is IInbox {
         });
         
         requests[requestId] = request;
+        _trackPendingRequest(requestId);
         
         emit MessageSent(
             requestId,
@@ -264,15 +271,30 @@ contract InboxBase is IInbox {
         });
     }
 
-    /// @notice Generates a request ID from a chain ID and epoch
-    /// @param chainId_ The chain ID
-    /// @param epoch The request epoch number
+    /// @notice Generates a request ID from a chain ID and nonce (128-bit each)
+    /// @param chainId_ The chain ID (uint128)
+    /// @param nonce The request nonce number (uint128)
     /// @return The generated request ID
-    function getRequestId(uint chainId_, uint epoch) external view returns (bytes32) {
-        return keccak256(abi.encodePacked(chainId_, epoch));
+    function getRequestId(uint chainId_, uint nonce) external pure returns (bytes32) {
+        return _packRequestId(chainId_, nonce);
+    }
+
+    /// @notice Unpacks a request ID into chain ID and nonce (128-bit each)
+    /// @param requestId The packed request ID
+    /// @return chainId_ The chain ID (uint128)
+    /// @return nonce The request nonce number (uint128)
+    function unpackRequestId(bytes32 requestId) external pure returns (uint chainId_, uint nonce) {
+        uint256 packed = uint256(requestId);
+        chainId_ = uint256(uint128(packed >> 128));
+        nonce = uint256(uint128(packed));
     }
     
     // Internal helper functions
+    function _packRequestId(uint chainId_, uint nonce) internal pure returns (bytes32) {
+        require(chainId_ <= type(uint128).max, "Inbox: chainId too large");
+        require(nonce <= type(uint128).max, "Inbox: nonce too large");
+        return bytes32((uint256(uint128(chainId_)) << 128) | uint256(uint128(nonce)));
+    }
     function _getOriginalSender(bytes32 requestId) internal view returns (address) {
         return requests[requestId].originalSender;
     }

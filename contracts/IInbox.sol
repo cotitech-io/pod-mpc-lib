@@ -57,5 +57,7 @@ interface IInbox {
 
     function respond(bytes memory data) external;
 
-    function getRequestId(uint chainId, uint epoch) external view returns (bytes32);
+    function getRequestId(uint chainId, uint nonce) external pure returns (bytes32);
+
+    function unpackRequestId(bytes32 requestId) external pure returns (uint chainId, uint nonce);
 }

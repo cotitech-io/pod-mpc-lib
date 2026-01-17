@@ -2,9 +2,8 @@
 pragma solidity ^0.8.28;
 
 import "../mpc/PodMpcLib.sol";
-import "../mpc/MpcLib.sol";
 
-contract Adder is MpcUser {
+contract Adder is PodMpcLib {
     event AddRequest(bytes32 requestId, uint a, uint b);
 
     // TODO: Use the mpc 
@@ -16,11 +15,10 @@ contract Adder is MpcUser {
 
     function add(uint a, uint b) external {
         bytes32 requestId = PodMpcLib.add(
-            inbox,
             a, b,
             msg.sender, // Who can decrypt the result
-            receiveC.selector,
-            onDefaultMpcError.selector);
+            Adder.receiveC.selector,
+            PodMpcLib.onDefaultMpcError.selector);
         emit AddRequest(requestId, a, b);
     }
 

@@ -15,9 +15,4 @@ abstract contract MpcUser is InboxUser {
         mpcExecutorAddress = _mpcExecutorAddress;
         cotiChainId = _cotiChainId;
     }
-
-    function onDefaultMpcError(bytes32 requestId) external onlyInbox {
-        (uint code, string memory message) = inbox.getOutboxError(requestId);
-        emit ErrorRemoteCall(requestId, code, message);
-    }
 }

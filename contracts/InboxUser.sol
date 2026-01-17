@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import "./IInbox.sol";
 
 abstract contract InboxUser {
-    IInbox inbox;
+    IInbox public inbox;
 
     error OnlyInbox(address invalidCaller);
 

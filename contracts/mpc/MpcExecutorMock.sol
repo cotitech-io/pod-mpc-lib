@@ -5,7 +5,8 @@ import "./IPodMpcLib.sol";
 import "../IInbox.sol";
 import "../InboxUser.sol";
 
-contract MpcExecutor is IPodMpcLib, InboxUser {
+contract MpcExecutorMock is IPodMpcLib, InboxUser {
+    event AddResult(uint c, address cOwner);
 
     constructor(address _inbox) {
         setInbox(_inbox);
@@ -24,5 +25,9 @@ contract MpcExecutor is IPodMpcLib, InboxUser {
         // calculate c,
         // encrypt c with address cOwner
         // return c
+        uint c = a + b;
+        bytes memory data = abi.encode(c);
+        emit AddResult(c, cOwner);
+        inbox.respond(data);
     }
 }

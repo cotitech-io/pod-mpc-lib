@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
 
-import "../InboxUser.sol";
 import "../mpc/PodMpcLib.sol";
+import "../mpc/MpcLib.sol";
 
-contract Adder is InboxUser {
-    event ErrorRemoteCall(bytes32 requestId, uint code, string message);
+contract Adder is MpcUser {
     event AddRequest(bytes32 requestId, uint a, uint b);
 
     // TODO: Use the mpc 
@@ -20,14 +19,9 @@ contract Adder is InboxUser {
             inbox,
             a, b,
             msg.sender, // Who can decrypt the result
-            Adder.receiveC.selector,
-            Adder.onError.selector);
+            receiveC.selector,
+            onDefaultMpcError.selector);
         emit AddRequest(requestId, a, b);
-    }
-
-    function onError(bytes32 requestId) external onlyInbox {
-        (uint code, string memory message) = inbox.getOutboxError(requestId);
-        emit ErrorRemoteCall(requestId, code, message);
     }
 
     function receiveC(bytes memory data) external onlyInbox {

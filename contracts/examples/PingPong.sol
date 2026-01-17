@@ -1,28 +1,19 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
 
-import "../IInbox.sol";
+import "../InboxUser.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract Ping is Ownable {
-    IInbox inbox;
+contract Ping is InboxUser {
     uint peerChainId;
     address peerContract;
 
     event PingReceived(string message, uint fromChainId);
     event PingAck(bytes32 requestId, uint remoteChainId);
     event ErrorRemoteCall(bytes32 requestId, uint code, string message);
-    error OnlyInbox();
-
-    modifier onlyInbox() {
-        if (msg.sender != address(inbox)) {
-            revert OnlyInbox();
-        }
-        _;
-    }
 
     constructor(address _inbox) Ownable(msg.sender) {
-        inbox = IInbox(_inbox);
+        setInbox(_inbox);
     }
 
     function setPeerContract(address _peerContract, uint _peerChainId) external onlyOwner {    

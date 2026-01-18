@@ -7,6 +7,50 @@ import "./InboxBase.sol";
 contract InboxMiner is InboxBase, IInboxMiner {
     constructor(uint256 _chainId) InboxBase(_chainId) {}
 
+    /// @notice Executes a mined incoming request on the target chain
+    /// @dev Sets execution context, calls target, clears context, marks executed, and records errors
+    /// @param incomingRequest The incoming request to execute
+    /// @param sourceChainId The chain ID that sent the request
+    function _executeIncomingRequest(
+        Request storage incomingRequest,
+        uint sourceChainId
+    ) internal {
+        // Set execution context
+        _currentContext = ExecutionContext({
+            remoteChainId: sourceChainId,
+            remoteContract: incomingRequest.originalSender,
+            requestId: incomingRequest.requestId
+        });
+
+        // Deliver message to target contract
+        address targetContract = incomingRequest.targetContract;
+        bytes memory data = incomingRequest.data;
+
+        (bool success, bytes memory returnData) = targetContract.call(data);
+
+        // Always clear execution context after execution
+        _currentContext = ExecutionContext({
+            remoteChainId: 0,
+            remoteContract: address(0),
+            requestId: bytes32(0)
+        });
+
+        // Mark as executed after delivery
+        incomingRequest.executed = true;
+
+        if (!success) {
+            // Handle error
+            Error memory err = Error({
+                requestId: incomingRequest.requestId,
+                errorCode: 1,
+                errorMessage: returnData
+            });
+            errors[incomingRequest.requestId] = err;
+            emit ErrorReceived(incomingRequest.requestId, 1, returnData);
+        }
+        // If success and respond() was called, the response request was already created
+    }
+
     /// @notice Processes mined requests and errors from a source chain
     /// @dev Handles response requests by triggering callbacks and processes errors by triggering error handlers
     /// @param sourceChainId The chain ID that the requests/errors came from
@@ -21,73 +65,59 @@ contract InboxMiner is InboxBase, IInboxMiner {
 
         // Process incoming requests (including response requests)
         for (uint i = 0; i < mined.length; i++) {
-            bytes32 requestId = mined[i].requestId;
+            MinedRequest memory minedRequest = mined[i];
+            bytes32 requestId = minedRequest.requestId;
             Request storage incomingRequest = incomingRequests[requestId];
 
-            // Check if this is a response request (one-way with sourceRequestId set)
+            if (incomingRequest.requestId == bytes32(0)) {
+                require(minedRequest.sourceContract != address(0), "Inbox: invalid source contract");
+                require(minedRequest.targetContract != address(0), "Inbox: invalid target contract");
+
+                Request memory newIncomingRequest = Request({
+                    requestId: requestId,
+                    targetChainId: sourceChainId,
+                    targetContract: minedRequest.targetContract,
+                    data: minedRequest.data,
+                    callerContract: minedRequest.sourceContract,
+                    originalSender: minedRequest.sourceContract,
+                    timestamp: uint64(block.timestamp),
+                    callbackSelector: minedRequest.callbackSelector,
+                    errorSelector: minedRequest.errorSelector,
+                    isTwoWay: minedRequest.isTwoWay,
+                    executed: false,
+                    sourceRequestId: minedRequest.sourceRequestId
+                });
+
+                incomingRequests[requestId] = newIncomingRequest;
+                incomingRequest = incomingRequests[requestId];
+
+                emit MessageReceived(requestId, sourceChainId, minedRequest.sourceContract, minedRequest.data);
+            }
+
+            if (!incomingRequest.executed) {
+                _executeIncomingRequest(incomingRequest, sourceChainId);
+            }
+
+            // If this is a response request (one-way with sourceRequestId set),
+            // update the original request as executed and store the response data.
             if (incomingRequest.requestId != bytes32(0) &&
                 incomingRequest.sourceRequestId != bytes32(0) &&
                 !incomingRequest.isTwoWay) {
-                // This is a response request - decode and trigger callback
                 bytes32 originalRequestId = incomingRequest.sourceRequestId;
                 Request storage originalRequest = requests[originalRequestId];
 
-                if (originalRequest.requestId != bytes32(0) &&
-                    !originalRequest.executed &&
-                    originalRequest.isTwoWay) {
-                    // Mark as executed when response is processed
-                    originalRequest.executed = true;
-
-                    // Decode response data (data, sourceRequestId)
-                    (bytes memory responseData, ) = abi.decode(mined[i].response, (bytes, bytes32));
-
+                if (originalRequest.requestId != bytes32(0) && !originalRequest.executed) {
                     Response memory response = Response({
                         requestId: originalRequestId,
-                        response: responseData
+                        response: incomingRequest.data
                     });
 
                     responses[originalRequestId] = response;
+                    originalRequest.executed = true;
 
-                    emit ResponseReceived(originalRequestId, responseData);
-
-                    // Call the callback function on the original sender contract
-                    // Wrap in ExecutionContext so consuming contract can use inboxMsgSender()
-                    if (originalRequest.callbackSelector != bytes4(0)) {
-                        address originalSender = originalRequest.originalSender;
-                        if (originalSender != address(0)) {
-                            // Set up execution context
-                            ExecutionContext memory prevContext = _currentContext;
-
-                            _currentContext = ExecutionContext({
-                                remoteChainId: sourceChainId,
-                                remoteContract: originalRequest.targetContract,
-                                requestId: originalRequestId
-                            });
-
-                            // Execute callback
-                            (bool success, ) = originalSender.call(
-                                abi.encodeWithSelector(originalRequest.callbackSelector, originalRequestId)
-                            );
-
-                            // Restore execution context
-                            _currentContext = prevContext;
-
-                            if (!success) {
-                                // Store as error instead
-                                Error memory err = Error({
-                                    requestId: originalRequestId,
-                                    errorCode: 2,
-                                    errorMessage: "Callback failed"
-                                });
-                                errors[originalRequestId] = err;
-                                emit ErrorReceived(originalRequestId, 2, "Callback failed");
-                            }
-                        }
-                    }
+                    emit ResponseReceived(originalRequestId, incomingRequest.data);
                 }
             }
-            // Otherwise, this is a regular incoming request that needs to be delivered
-            // (handled by deliverMessage)
         }
 
         // Process errors for outgoing requests (both two-way and one-way)
@@ -142,4 +172,5 @@ contract InboxMiner is InboxBase, IInboxMiner {
             }
         }
     }
+
 }

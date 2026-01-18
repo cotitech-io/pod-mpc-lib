@@ -2,57 +2,13 @@ import { createPublicClient, createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { hardhat } from "viem/chains";
 import { RelayNode } from "../relay-node.js";
-
-const INBOX_ABI = [
-  {
-    type: "event",
-    name: "MessageSent",
-    inputs: [
-      { name: "messageHash", type: "bytes32", indexed: true },
-      { name: "chainId", type: "uint256", indexed: true },
-      { name: "reqId", type: "uint256", indexed: true },
-      { name: "sender", type: "address", indexed: false },
-      { name: "timestamp", type: "uint256", indexed: false },
-    ],
-  },
-  {
-    type: "function",
-    name: "receiveMessage",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "sourceChainId", type: "uint256" },
-      { name: "reqId", type: "uint256" },
-      { name: "sender", type: "address" },
-      { name: "timestamp", type: "uint256" },
-      { name: "messageHash", type: "bytes32" },
-    ],
-    outputs: [{ name: "", type: "bool" }],
-  },
-  {
-    type: "function",
-    name: "getMessage",
-    stateMutability: "view",
-    inputs: [{ name: "messageHash", type: "bytes32" }],
-    outputs: [
-      {
-        name: "",
-        type: "tuple",
-        components: [
-          { name: "chainId", type: "uint256" },
-          { name: "reqId", type: "uint256" },
-          { name: "sender", type: "address" },
-          { name: "timestamp", type: "uint256" },
-          { name: "processed", type: "bool" },
-        ],
-      },
-    ],
-  },
-] as const;
+import { INBOX_ABI } from "./inbox-abi.js";
 
 export class RelayHelper {
   private chain1Client: ReturnType<typeof createPublicClient>;
   private chain2Client: ReturnType<typeof createPublicClient>;
   private chain2Wallet: ReturnType<typeof createWalletClient>;
+  private account: ReturnType<typeof privateKeyToAccount>;
   private inbox1Address: `0x${string}`;
   private inbox2Address: `0x${string}`;
   private chain1Url: string;
@@ -76,7 +32,8 @@ export class RelayHelper {
     this.chain2Id = chain2Id;
     this.privateKey = privateKey;
     const account = privateKeyToAccount(privateKey);
-    const nodeChainId = 31337;
+    this.account = account;
+    const nodeChainId = chain2Id;
 
     this.chain1Client = createPublicClient({
       chain: { ...hardhat, id: chain1Id },
@@ -98,31 +55,40 @@ export class RelayHelper {
     this.inbox2Address = inbox2Address;
   }
 
-  async getMessagesFromChain1(fromBlock: bigint = 0n, toBlock: bigint | "latest" = "latest"): Promise<any[]> {
-    const logs = await this.chain1Client.getLogs({
+  async getMessagesFromChain1(from: number = 0, len: number = 0): Promise<any[]> {
+    const totalRequests = await this.chain1Client.readContract({
       address: this.inbox1Address,
-      event: {
-        type: "event",
-        name: "MessageSent",
-        inputs: [
-          { type: "bytes32", indexed: true, name: "messageHash" },
-          { type: "uint256", indexed: true, name: "chainId" },
-          { type: "uint256", indexed: true, name: "reqId" },
-          { type: "address", indexed: false, name: "sender" },
-          { type: "uint256", indexed: false, name: "timestamp" },
-        ],
-      },
-      fromBlock,
-      toBlock: toBlock === "latest" ? await this.chain1Client.getBlockNumber() : (toBlock as bigint),
+      abi: INBOX_ABI,
+      functionName: "getRequestsLen",
+      args: [],
     });
 
-    return logs.map((log) => ({
-      messageHash: log.args.messageHash,
-      chainId: log.args.chainId ? Number(log.args.chainId) : 0,
-      reqId: log.args.reqId ? Number(log.args.reqId) : 0,
-      sender: log.args.sender,
-      timestamp: log.args.timestamp ? Number(log.args.timestamp) : 0,
-      blockNumber: log.blockNumber,
+    const total = Number(totalRequests);
+    if (total === 0 || from >= total) {
+      return [];
+    }
+
+    const remaining = total - from;
+    const take = len === 0 || len > remaining ? remaining : len;
+
+    const requests = (await this.chain1Client.readContract({
+      address: this.inbox1Address,
+      abi: INBOX_ABI,
+      functionName: "getRequests",
+      args: [BigInt(from), BigInt(take)],
+    })) as any[];
+
+    return requests.map((request) => ({
+      requestId: this.getTupleField<`0x${string}`>(request, "requestId", 0),
+      chainId: Number(this.getTupleField<bigint>(request, "targetChainId", 1) ?? 0n),
+      targetContract: this.getTupleField<`0x${string}`>(request, "targetContract", 2),
+      sender: this.getTupleField<`0x${string}`>(request, "originalSender", 5),
+      data: this.getTupleField<`0x${string}`>(request, "data", 3),
+      callbackSelector: this.getTupleField<`0x${string}`>(request, "callbackSelector", 7),
+      errorSelector: this.getTupleField<`0x${string}`>(request, "errorSelector", 8),
+      isTwoWay: this.getTupleField<boolean>(request, "isTwoWay", 9),
+      sourceRequestId: this.getTupleField<`0x${string}`>(request, "sourceRequestId", 11),
+      executed: this.getTupleField<boolean>(request, "executed", 10),
     }));
   }
 
@@ -148,27 +114,46 @@ export class RelayHelper {
       address: this.inbox2Address,
       abi: INBOX_ABI,
       functionName: "receiveMessage",
+      chain: { ...hardhat, id: this.chain2Id },
+      account: this.account,
       args: [BigInt(sourceChainId), BigInt(reqId), sender, BigInt(timestamp), messageHash],
-    });
+    } as any);
 
     await this.chain2Client.waitForTransactionReceipt({ hash });
     return hash;
   }
 
-  async relayAllPendingMessages(fromBlock: bigint = 0n): Promise<number> {
-    const messages = await this.getMessagesFromChain1(fromBlock);
+  async relayAllPendingMessages(from: number = 0, len: number = 0): Promise<number> {
+    const messages = await this.getMessagesFromChain1(from, len);
     let relayed = 0;
 
     for (const msg of messages) {
-      if (msg.messageHash && msg.sender) {
+      if (msg.requestId && msg.sender) {
         try {
-          await this.relayMessage(
-            msg.chainId,
-            msg.reqId,
-            msg.sender as `0x${string}`,
-            msg.timestamp,
-            msg.messageHash as `0x${string}`
-          );
+          await this.chain2Wallet.writeContract({
+            address: this.inbox2Address,
+            abi: INBOX_ABI,
+            functionName: "batchProcessRequests",
+            chain: { ...hardhat, id: this.chain2Id },
+            account: this.account,
+            args: [
+              BigInt(this.chain1Id),
+              [
+                {
+                  requestId: msg.requestId,
+                  sourceContract: msg.sender as `0x${string}`,
+                  targetContract: msg.targetContract ?? "0x0000000000000000000000000000000000000000",
+                  data: msg.data ?? "0x",
+                  callbackSelector: msg.callbackSelector ?? "0x00000000",
+                  errorSelector: msg.errorSelector ?? "0x00000000",
+                  isTwoWay: Boolean(msg.isTwoWay),
+                  sourceRequestId:
+                    msg.sourceRequestId ?? "0x0000000000000000000000000000000000000000000000000000000000000000",
+                },
+              ],
+              [],
+            ],
+          } as any);
           relayed++;
         } catch (error: any) {
           if (error.message !== "Message already processed") {
@@ -192,5 +177,111 @@ export class RelayHelper {
       privateKey: this.privateKey,
       pollInterval,
     });
+  }
+
+  private getTupleField<T>(value: any, key: string, index: number): T | undefined {
+    return (value?.[key] ?? value?.[index]) as T | undefined;
+  }
+
+  async mineFromAToB(from: number, len: number): Promise<number> {
+    const totalRequests = await this.chain1Client.readContract({
+      address: this.inbox1Address,
+      abi: INBOX_ABI,
+      functionName: "getRequestsLen",
+      args: [],
+    });
+
+    const total = Number(totalRequests);
+    if (total === 0 || from >= total) {
+      return 0;
+    }
+
+    const remaining = total - from;
+    const take = len === 0 || len > remaining ? remaining : len;
+
+    const requests = (await this.chain1Client.readContract({
+      address: this.inbox1Address,
+      abi: INBOX_ABI,
+      functionName: "getRequests",
+      args: [BigInt(from), BigInt(take)],
+    })) as any[];
+
+    const mined: Array<{
+      requestId: `0x${string}`;
+      sourceContract: `0x${string}`;
+      targetContract: `0x${string}`;
+      data: `0x${string}`;
+      callbackSelector: `0x${string}`;
+      errorSelector: `0x${string}`;
+      isTwoWay: boolean;
+      sourceRequestId: `0x${string}`;
+    }> = [];
+
+    for (const request of requests) {
+      const requestId = this.getTupleField<`0x${string}`>(request, "requestId", 0);
+      const targetChainId = this.getTupleField<bigint>(request, "targetChainId", 1);
+      const targetContract = this.getTupleField<`0x${string}`>(request, "targetContract", 2);
+      const data = this.getTupleField<`0x${string}`>(request, "data", 3);
+      const callbackSelector = this.getTupleField<`0x${string}`>(request, "callbackSelector", 7);
+      const errorSelector = this.getTupleField<`0x${string}`>(request, "errorSelector", 8);
+      const originalSender = this.getTupleField<`0x${string}`>(request, "originalSender", 5);
+      const isTwoWay = this.getTupleField<boolean>(request, "isTwoWay", 9);
+      const executed = this.getTupleField<boolean>(request, "executed", 10);
+      const sourceRequestId = this.getTupleField<`0x${string}`>(request, "sourceRequestId", 11);
+
+      if (!requestId || requestId === "0x0000000000000000000000000000000000000000000000000000000000000000") {
+        continue;
+      }
+
+      if (targetChainId !== BigInt(this.chain2Id)) {
+        continue;
+      }
+
+      if (executed) {
+        continue;
+      }
+
+      const incoming = await this.chain2Client.readContract({
+        address: this.inbox2Address,
+        abi: INBOX_ABI,
+        functionName: "incomingRequests",
+        args: [requestId],
+      });
+
+      const incomingRequestId = this.getTupleField<`0x${string}`>(incoming, "requestId", 0);
+      const incomingExecuted = this.getTupleField<boolean>(incoming, "executed", 10);
+
+      if (incomingRequestId && incomingExecuted) {
+        continue;
+      }
+
+      mined.push({
+        requestId: requestId!,
+        sourceContract: originalSender!,
+        targetContract: targetContract!,
+        data: data!,
+        callbackSelector: callbackSelector ?? "0x00000000",
+        errorSelector: errorSelector ?? "0x00000000",
+        isTwoWay: Boolean(isTwoWay),
+        sourceRequestId:
+          sourceRequestId ?? "0x0000000000000000000000000000000000000000000000000000000000000000",
+      });
+    }
+
+    if (mined.length === 0) {
+      return 0;
+    }
+
+    const mineHash = await this.chain2Wallet.writeContract({
+      address: this.inbox2Address,
+      abi: INBOX_ABI,
+      functionName: "batchProcessRequests",
+      chain: { ...hardhat, id: this.chain2Id },
+      account: this.account,
+      args: [BigInt(this.chain1Id), mined, []],
+    } as any);
+    await this.chain2Client.waitForTransactionReceipt({ hash: mineHash });
+
+    return mined.length;
   }
 }

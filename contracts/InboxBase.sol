@@ -24,8 +24,6 @@ contract InboxBase is IInbox {
     // Incoming requests (requests that need to be delivered to target contracts on this chain)
     mapping(bytes32 => Request) public incomingRequests;
     
-    // Mapping to track source contracts for incoming requests
-    mapping(bytes32 => address) internal _requestSourceContracts;
     
     /// @notice Hook for tracking newly created outgoing requests
     /// @dev Override in Inbox to add requests to pending queues
@@ -87,43 +85,15 @@ contract InboxBase is IInbox {
         bytes4 callbackSelector,
         bytes4 errorSelector
     ) internal returns (bytes32) {
-        require(targetChainId != chainId, "Inbox: cannot send to same chain");
-        require(targetContract != address(0), "Inbox: invalid target contract");
-        
-        // Increment nonce (starts at 1)
-        ++_requestNonce;
-        
-        // Generate requestId from chainId and nonce (128-bit each)
-        bytes32 requestId = _packRequestId(chainId, _requestNonce);
-        
-        Request memory request = Request({
-            requestId: requestId,
-            targetChainId: targetChainId,
-            targetContract: targetContract,
-            data: data,
-            callerContract: msg.sender,
-            originalSender: msg.sender,
-            timestamp: uint64(block.timestamp),
-            callbackSelector: callbackSelector,
-            errorSelector: errorSelector,
-            isTwoWay: true,
-            executed: false,
-            sourceRequestId: bytes32(0) // Not a response
-        });
-        
-        requests[requestId] = request;
-        _trackPendingRequest(requestId);
-        
-        emit MessageSent(
-            requestId,
+        return _createRequest(
             targetChainId,
             targetContract,
             data,
             callbackSelector,
-            errorSelector
+            errorSelector,
+            true,
+            bytes32(0)
         );
-        
-        return requestId;
     }
 
     /// @notice Sends a one-way message to a target chain with only an error handler
@@ -148,43 +118,15 @@ contract InboxBase is IInbox {
         bytes4 errorSelector,
         bytes32 sourceRequestId
     ) internal returns (bytes32) {
-        require(targetChainId != chainId, "Inbox: cannot send to same chain");
-        require(targetContract != address(0), "Inbox: invalid target contract");
-        
-        // Increment nonce (starts at 1)
-        ++_requestNonce;
-        
-        // Generate requestId from chainId and nonce (128-bit each)
-        bytes32 requestId = _packRequestId(chainId, _requestNonce);
-        
-        Request memory request = Request({
-            requestId: requestId,
-            targetChainId: targetChainId,
-            targetContract: targetContract,
-            data: data,
-            callerContract: msg.sender,
-            originalSender: msg.sender,
-            timestamp: uint64(block.timestamp),
-            callbackSelector: bytes4(0), // No callback for one-way
-            errorSelector: errorSelector, // Error handler for one-way
-            isTwoWay: false,
-            executed: false,
-            sourceRequestId: sourceRequestId // Set if this is a response
-        });
-        
-        requests[requestId] = request;
-        _trackPendingRequest(requestId);
-        
-        emit MessageSent(
-            requestId,
+        return _createRequest(
             targetChainId,
             targetContract,
             data,
             bytes4(0),
-            errorSelector
+            errorSelector,
+            false,
+            sourceRequestId
         );
-        
-        return requestId;
     }
 
     /// @notice Gets error information for an outgoing request that failed
@@ -214,13 +156,7 @@ contract InboxBase is IInbox {
         require(_currentContext.remoteChainId != 0, "Inbox: no active message");
         require(_currentContext.requestId != bytes32(0), "Inbox: no active message");
         
-        // Use _currentContext.remoteContract if set (for execution context), otherwise fall back to mapping
-        address sourceContract = _currentContext.remoteContract;
-        if (sourceContract == address(0)) {
-            sourceContract = _requestSourceContracts[_currentContext.requestId];
-        }
-        
-        return (_currentContext.remoteChainId, sourceContract);
+        return (_currentContext.remoteChainId, _currentContext.remoteContract);
     }
 
     /// @notice Responds to an incoming message by creating a one-way response request
@@ -233,11 +169,12 @@ contract InboxBase is IInbox {
         bytes32 sourceRequestId = _currentContext.requestId;
         Request storage incomingRequest = incomingRequests[sourceRequestId];
         require(incomingRequest.requestId != bytes32(0), "Inbox: request not found");
-        // Note: executed flag is set by deliverMessage, not here
         
         // Create a new one-way request to send response back to source chain
-        // Encode the response data and the original requestId for the callback
-        bytes memory responseData = abi.encode(data, sourceRequestId);
+        bytes memory responseData = abi.encodeWithSelector(
+            incomingRequest.callbackSelector,
+            data
+        );
         
         // Get the original sender contract from the incoming request
         // The originalSender is the contract on the source chain that sent the message
@@ -262,13 +199,6 @@ contract InboxBase is IInbox {
         responses[sourceRequestId] = response;
         
         emit ResponseReceived(sourceRequestId, data);
-        
-        // Clear execution context
-        _currentContext = ExecutionContext({
-            remoteChainId: 0,
-            remoteContract: address(0),
-            requestId: bytes32(0)
-        });
     }
 
     /// @notice Generates a request ID from a chain ID and nonce (128-bit each)
@@ -288,8 +218,92 @@ contract InboxBase is IInbox {
         chainId_ = uint256(uint128(packed >> 128));
         nonce = uint256(uint128(packed));
     }
+
+    /// @notice Gets a range of outgoing requests by index
+    /// @param from The starting index (0-based)
+    /// @param len The number of requests to return
+    /// @return A list of requests in nonce order
+    function getRequests(uint from, uint len) external view returns (Request[] memory) {
+        if (len == 0) {
+            return new Request[](0);
+        }
+
+        uint total = _requestNonce;
+        if (total == 0 || from >= total) {
+            return new Request[](0);
+        }
+
+        uint endIndex = from + len;
+        if (endIndex > total) {
+            endIndex = total;
+        }
+
+        uint actualLen = endIndex - from;
+        Request[] memory result = new Request[](actualLen);
+
+        for (uint i = 0; i < actualLen; i++) {
+            uint nonce = from + i + 1; // Nonce is 1-based; index is 0-based
+            bytes32 requestId = _packRequestId(chainId, nonce);
+            result[i] = requests[requestId];
+        }
+
+        return result;
+    }
+
+    /// @notice Gets the total number of outgoing requests
+    function getRequestsLen() external view returns (uint) {
+        return _requestNonce;
+    }
     
     // Internal helper functions
+    function _createRequest(
+        uint256 targetChainId,
+        address targetContract,
+        bytes memory data,
+        bytes4 callbackSelector,
+        bytes4 errorSelector,
+        bool isTwoWay,
+        bytes32 sourceRequestId
+    ) internal returns (bytes32) {
+        require(targetChainId != chainId, "Inbox: cannot send to same chain");
+        require(targetContract != address(0), "Inbox: invalid target contract");
+
+        // Increment nonce (starts at 1)
+        ++_requestNonce;
+
+        // Generate requestId from chainId and nonce (128-bit each)
+        bytes32 requestId = _packRequestId(chainId, _requestNonce);
+
+        Request memory request = Request({
+            requestId: requestId,
+            targetChainId: targetChainId,
+            targetContract: targetContract,
+            data: data,
+            callerContract: msg.sender,
+            originalSender: msg.sender,
+            timestamp: uint64(block.timestamp),
+            callbackSelector: callbackSelector,
+            errorSelector: errorSelector,
+            isTwoWay: isTwoWay,
+            executed: false,
+            sourceRequestId: sourceRequestId
+        });
+
+        requests[requestId] = request;
+        _trackPendingRequest(requestId);
+
+        emit MessageSent(
+            requestId,
+            targetChainId,
+            targetContract,
+            data,
+            callbackSelector,
+            errorSelector
+        );
+
+        return requestId;
+    }
+
     function _packRequestId(uint chainId_, uint nonce) internal pure returns (bytes32) {
         require(chainId_ <= type(uint128).max, "Inbox: chainId too large");
         require(nonce <= type(uint128).max, "Inbox: nonce too large");
@@ -299,7 +313,4 @@ contract InboxBase is IInbox {
         return requests[requestId].originalSender;
     }
     
-    function _getSourceContractFromRequest(bytes32 requestId) internal view returns (address) {
-        return _requestSourceContracts[requestId];
-    }
 }

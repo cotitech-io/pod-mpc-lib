@@ -15,7 +15,7 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import { ONBOARD_CONTRACT_ADDRESS, Wallet as CotiWallet } from "@coti-io/coti-ethers";
 import { decryptUint } from "@coti-io/coti-sdk-typescript";
-import { Contract, JsonRpcProvider, Wallet } from "ethers";
+import { JsonRpcProvider } from "ethers";
 
 const getTupleField = (value: any, key: string, index: number) => value?.[key] ?? value?.[index];
 
@@ -36,31 +36,6 @@ const requirePrivateKey = (key: string) => {
 };
 
 const envOrEmpty = (key: string) => process.env[key]?.trim() ?? "";
-
-const defaultBumpPercent = BigInt(parseInt(process.env.GAS_BUMP_PERCENT || "50"));
-const replacementBumpPercent = BigInt(parseInt(process.env.GAS_REPLACEMENT_BUMP_PERCENT || "200"));
-const bumpFee = (value: bigint, percent: bigint) => value + (value * percent) / 100n;
-
-const buildFeeOverrides = (
-  fees: {
-  gasPrice?: bigint;
-  maxFeePerGas?: bigint;
-  maxPriorityFeePerGas?: bigint;
-  },
-  bumpPercent: bigint
-) => {
-  if (fees.gasPrice !== undefined) {
-    return { gasPrice: bumpFee(fees.gasPrice, bumpPercent) };
-  }
-  const overrides: { maxFeePerGas?: bigint; maxPriorityFeePerGas?: bigint } = {};
-  if (fees.maxFeePerGas !== undefined) {
-    overrides.maxFeePerGas = bumpFee(fees.maxFeePerGas, bumpPercent);
-  }
-  if (fees.maxPriorityFeePerGas !== undefined) {
-    overrides.maxPriorityFeePerGas = bumpFee(fees.maxPriorityFeePerGas, bumpPercent);
-  }
-  return overrides;
-};
 
 const logStep = (message: string) => {
   console.log(`[mpc-test] ${message}`);
@@ -86,41 +61,87 @@ const onboardUser = async (privateKey: string, rpcUrl: string, onboardAddress: s
   return key;
 };
 
+type TestContext = {
+  sepolia: {
+    publicClient: any;
+    wallet: any;
+  };
+  coti: {
+    publicClient: any;
+    wallet: any;
+  };
+  contracts: {
+    inboxSepolia: any;
+    inboxCoti: any;
+    mpcAdder: any;
+    mpcAdderAsCoti: any;
+    mpcExecutor: any;
+  };
+  crypto: {
+    userKey: string;
+    cotiEncryptWallet: CotiWallet;
+  };
+  chainIds: {
+    sepolia: number;
+    coti: bigint;
+  };
+};
+
+const receiptWaitOptions = { timeout: 300_000, pollingInterval: 2_000 };
+
+const buildReceiveCMethodCall = (response: `0x${string}`) => {
+  const receiveCData = encodeFunctionData({
+    abi: [
+      {
+        type: "function",
+        name: "receiveC",
+        stateMutability: "nonpayable",
+        inputs: [{ name: "data", type: "bytes" }],
+        outputs: [],
+      },
+    ],
+    functionName: "receiveC",
+    args: [response],
+  });
+  return {
+    selector: "0x00000000",
+    data: receiveCData,
+    datatypes: [],
+    datalens: [],
+  };
+};
+
+const getMessageSentEvent = async (publicClient: any, inbox: any, fromBlock: bigint) => {
+  const events = (await publicClient.getContractEvents({
+    address: inbox.address,
+    abi: inbox.abi,
+    eventName: "MessageSent",
+    fromBlock,
+    strict: true,
+  })) as any[];
+  assert.ok(events.length > 0);
+  return events[events.length - 1];
+};
+
+const findResponseRequest = async (inboxCoti: any, requestId: string, label: string) => {
+  const responseCount = await inboxCoti.read.getRequestsLen();
+  logStep(`${label}: response requests count=${responseCount}`);
+  assert.ok(Number(responseCount) > 0);
+  const responseRequests = await inboxCoti.read.getRequests([0, responseCount]);
+  logStep(`${label}: fetched response requests list`);
+  const responseRequest = (responseRequests as any[]).find(
+    (req) => getTupleField(req, "sourceRequestId", 11) === requestId
+  );
+  assert.ok(responseRequest);
+  return responseRequest;
+};
+
 describe("MpcAdder (system)", async function () {
   const { viem: sepoliaViem } = await network.connect({ network: "hardhat" });
   const { viem: cotiViem } = await network.connect({ network: "cotiTestnet" });
 
-  let sepoliaPublicClient: Awaited<ReturnType<typeof sepoliaViem.getPublicClient>>;
-  let cotiPublicClient: Awaited<ReturnType<typeof cotiViem.getPublicClient>>;
-  let sepoliaWallet: Awaited<ReturnType<typeof sepoliaViem.getWalletClients>>[number];
-  let cotiWallet: Awaited<ReturnType<typeof cotiViem.getWalletClients>>[number];
-  let hardhatCotiWallet: Awaited<ReturnType<typeof sepoliaViem.getWalletClient>>;
-
-  let inboxSepolia: any;
-  let inboxCoti: any;
-  let mpcAdder: any;
-  let mpcAdderAsCoti: any;
-  let mpcExecutor: any;
-  let userKey: string;
-  let encryptionWallet: Wallet;
-  let cotiEncryptWallet: CotiWallet;
+  let ctx: TestContext;
   let functionSelector: `0x${string}`;
-  let sepoliaFeeOverrides: { gasPrice?: bigint; maxFeePerGas?: bigint; maxPriorityFeePerGas?: bigint };
-  let cotiFeeOverrides: { gasPrice?: bigint; maxFeePerGas?: bigint; maxPriorityFeePerGas?: bigint };
-  let sepoliaNonce: number;
-  let cotiNonce: number;
-  let nextSepoliaOverrides: () => {
-    gasPrice?: bigint;
-    maxFeePerGas?: bigint;
-    maxPriorityFeePerGas?: bigint;
-  };
-  let nextCotiOverrides: () => Promise<{
-    gasPrice?: bigint;
-    maxFeePerGas?: bigint;
-    maxPriorityFeePerGas?: bigint;
-    nonce: number;
-  }>;
-  const receiptWaitOptions = { timeout: 300_000, pollingInterval: 2_000 };
 
   const sepoliaChainId = parseInt(process.env.HARDHAT_CHAIN_ID || "31337");
   const cotiChainId = BigInt(parseInt(process.env.COTI_TESTNET_CHAIN_ID || "7082400"));
@@ -162,67 +183,14 @@ describe("MpcAdder (system)", async function () {
       },
     });
 
-    sepoliaPublicClient = await sepoliaViem.getPublicClient();
-    cotiPublicClient = await cotiViem.getPublicClient({ chain: cotiChain });
-    [sepoliaWallet] = await sepoliaViem.getWalletClients();
+    const sepoliaPublicClient = await sepoliaViem.getPublicClient();
+    const cotiPublicClient = await cotiViem.getPublicClient({ chain: cotiChain });
+    const [sepoliaWallet] = await sepoliaViem.getWalletClients();
     const cotiAccount = privateKeyToAccount(
       `0x${requirePrivateKey("COTI_TESTNET_PRIVATE_KEY").replace(/^0x/, "")}` as `0x${string}`
     );
-    hardhatCotiWallet = await sepoliaViem.getWalletClient(cotiAccount.address);
-    cotiWallet = await cotiViem.getWalletClient(cotiAccount.address, { chain: cotiChain });
-
-    logStep("Fetching nonces");
-    sepoliaNonce = await sepoliaPublicClient.getTransactionCount({
-      address: sepoliaWallet.account.address,
-      blockTag: "latest",
-    });
-    const sepoliaPendingNonce = await sepoliaPublicClient.getTransactionCount({
-      address: sepoliaWallet.account.address,
-      blockTag: "pending",
-    });
-    cotiNonce = await cotiPublicClient.getTransactionCount({
-      address: cotiWallet.account.address,
-      blockTag: "latest",
-    });
-    const cotiPendingNonce = await cotiPublicClient.getTransactionCount({
-      address: cotiWallet.account.address,
-      blockTag: "pending",
-    });
-
-    const sepoliaBumpPercent =
-      sepoliaPendingNonce > sepoliaNonce ? replacementBumpPercent : defaultBumpPercent;
-    const cotiBumpPercent =
-      cotiPendingNonce > cotiNonce ? replacementBumpPercent : defaultBumpPercent;
-
-    logStep(
-      `Nonces: sepolia latest=${sepoliaNonce} pending=${sepoliaPendingNonce}, coti latest=${cotiNonce} pending=${cotiPendingNonce}`
-    );
-    logStep(
-      `Fee bump: sepolia=${sepoliaBumpPercent}% coti=${cotiBumpPercent}%`
-    );
-
-    logStep("Estimating fees");
-    sepoliaFeeOverrides = buildFeeOverrides(
-      { gasPrice: undefined,
-        maxFeePerGas: 2000000000n,
-        maxPriorityFeePerGas: 2000000000n,
-      },
-      // await sepoliaPublicClient.estimateFeesPerGas(),
-      sepoliaBumpPercent
-    );
-    cotiFeeOverrides = buildFeeOverrides(
-      await cotiPublicClient.estimateFeesPerGas(),
-      cotiBumpPercent
-    );
-
-    nextSepoliaOverrides = () => ({ ...sepoliaFeeOverrides });
-    nextCotiOverrides = async () => ({
-      ...cotiFeeOverrides,
-      nonce: await cotiPublicClient.getTransactionCount({
-        address: cotiWallet.account.address,
-        blockTag: "pending",
-      }),
-    });
+    const hardhatCotiWallet = await sepoliaViem.getWalletClient(cotiAccount.address);
+    const cotiWallet = await cotiViem.getWalletClient(cotiAccount.address, { chain: cotiChain });
 
     const inboxSepoliaAddress = envOrEmpty("HARDHAT_INBOX_ADDRESS") || envOrEmpty("SEPOLIA_INBOX_ADDRESS");
     const mpcAdderAddress =
@@ -239,29 +207,27 @@ describe("MpcAdder (system)", async function () {
       inboxCotiAddress &&
       mpcExecutorAddress;
 
+    let inboxSepolia: any;
+    let mpcAdder: any;
     if (reuseSepolia) {
       logStep(`Reusing Hardhat contracts: Inbox=${inboxSepoliaAddress} MpcAdder=${mpcAdderAddress}`);
       inboxSepolia = await sepoliaViem.getContractAt("Inbox", inboxSepoliaAddress as `0x${string}`);
       mpcAdder = await sepoliaViem.getContractAt("MpcAdder", mpcAdderAddress as `0x${string}`);
     } else {
       logStep("Deploying Hardhat Inbox + MpcAdder");
-      inboxSepolia = await sepoliaViem.deployContract(
-        "Inbox",
-        [BigInt(sepoliaChainId)],
-        { gasLimit: 5_000_000n } as any
-      );
-      mpcAdder = await sepoliaViem.deployContract("MpcAdder", [inboxSepolia.address], {
-        gasLimit: 5_000_000n,
-      } as any);
+      inboxSepolia = await sepoliaViem.deployContract("Inbox", [BigInt(sepoliaChainId)]);
+      mpcAdder = await sepoliaViem.deployContract("MpcAdder", [inboxSepolia.address]);
     }
 
-    mpcAdderAsCoti = await sepoliaViem.getContractAt("MpcAdder", mpcAdder.address, {
+    const mpcAdderAsCoti = await sepoliaViem.getContractAt("MpcAdder", mpcAdder.address, {
       client: {
         public: sepoliaPublicClient,
         wallet: hardhatCotiWallet,
       },
     });
 
+    let inboxCoti: any;
+    let mpcExecutor: any;
     if (reuseCoti) {
       logStep(`Reusing COTI contracts: Inbox=${inboxCotiAddress} MpcExecutor=${mpcExecutorAddress}`);
       inboxCoti = await cotiViem.getContractAt("Inbox", inboxCotiAddress as `0x${string}`, {
@@ -280,8 +246,6 @@ describe("MpcAdder (system)", async function () {
         "Inbox",
         [cotiChainId],
         {
-          ...(await nextCotiOverrides()),
-          gasLimit: 5_000_000n,
           client: {
             public: cotiPublicClient,
             wallet: cotiWallet,
@@ -292,8 +256,6 @@ describe("MpcAdder (system)", async function () {
         "MpcExecutor",
         [inboxCoti.address],
         {
-          ...(await nextCotiOverrides()),
-          gasLimit: 5_000_000n,
           client: {
             public: cotiPublicClient,
             wallet: cotiWallet,
@@ -309,12 +271,10 @@ describe("MpcAdder (system)", async function () {
 
     if (!reuseSepolia || !reuseCoti) {
       logStep("Configuring COTI executor + miner");
-      await mpcAdder.write.configureCoti([mpcExecutor.address, cotiChainId], {
-        ...nextSepoliaOverrides(),
-      });
+      await mpcAdder.write.configureCoti([mpcExecutor.address, cotiChainId]);
       const alreadyMiner = await inboxCoti.read.isMiner([cotiWallet.account.address]);
       if (!alreadyMiner) {
-        await inboxCoti.write.addMiner([cotiWallet.account.address], { ...(await nextCotiOverrides()) });
+        await inboxCoti.write.addMiner([cotiWallet.account.address]);
       } else {
         logStep("COTI miner already configured");
       }
@@ -325,17 +285,24 @@ describe("MpcAdder (system)", async function () {
     const cotiRpcUrl = requireEnv("COTI_TESTNET_RPC_URL");
     const cotiProvider = new JsonRpcProvider(cotiRpcUrl) as any;
     const cotiPrivateKey = requirePrivateKey("COTI_TESTNET_PRIVATE_KEY");
-    encryptionWallet = new Wallet(cotiPrivateKey, cotiProvider);
     const onboardAddress =
       process.env.COTI_ONBOARD_CONTRACT_ADDRESS || ONBOARD_CONTRACT_ADDRESS;
-    userKey = await onboardUser(cotiPrivateKey, cotiRpcUrl, onboardAddress);
-    cotiEncryptWallet = new CotiWallet(cotiPrivateKey, cotiProvider as any);
+    const userKey = await onboardUser(cotiPrivateKey, cotiRpcUrl, onboardAddress);
+    const cotiEncryptWallet = new CotiWallet(cotiPrivateKey, cotiProvider as any);
     cotiEncryptWallet.setAesKey(userKey);
 
     functionSelector = toFunctionSelector(
       "batchProcessRequests(uint256,(bytes32,address,address,(bytes4,bytes,bytes8[],bytes32[]),bytes4,bytes4,bool,bytes32)[],(bytes32,uint64,bytes)[])"
     );
     logStep("Setup complete");
+
+    ctx = {
+      sepolia: { publicClient: sepoliaPublicClient, wallet: sepoliaWallet },
+      coti: { publicClient: cotiPublicClient, wallet: cotiWallet },
+      contracts: { inboxSepolia, inboxCoti, mpcAdder, mpcAdderAsCoti, mpcExecutor },
+      crypto: { userKey, cotiEncryptWallet },
+      chainIds: { sepolia: sepoliaChainId, coti: cotiChainId },
+    };
   });
 
   const normalizeCiphertext = (ciphertext: unknown): bigint => {
@@ -354,7 +321,11 @@ describe("MpcAdder (system)", async function () {
   const buildEncryptedInput = async (
     value: bigint
   ): Promise<{ ciphertext: bigint; signature: `0x${string}` }> => {
-    const inputText = await cotiEncryptWallet.encryptValue(value, inboxCoti.address, functionSelector);
+    const inputText = await ctx.crypto.cotiEncryptWallet.encryptValue(
+      value,
+      ctx.contracts.inboxCoti.address,
+      functionSelector
+    );
     const ciphertext = normalizeCiphertext(inputText.ciphertext);
     return {
       ciphertext,
@@ -362,31 +333,20 @@ describe("MpcAdder (system)", async function () {
     };
   };
 
-  it.skip("Should create an outgoing MPC request from Sepolia", async function () {
+  it("Should create an outgoing MPC request from Sepolia", async function () {
     const a = 12n;
     const b = 30n;
 
     logStep("Test1: encrypt inputs");
-    const fromBlock = await sepoliaPublicClient.getBlockNumber();
+    const fromBlock = await ctx.sepolia.publicClient.getBlockNumber();
     const itA = await buildEncryptedInput(a);
     const itB = await buildEncryptedInput(b);
     logStep("Test1: sending add()");
-    const txHash = await mpcAdderAsCoti.write.add([itA, itB], nextSepoliaOverrides());
+    const txHash = await ctx.contracts.mpcAdderAsCoti.write.add([itA, itB]);
     logStep(`Test1: waiting for tx ${txHash}`);
-    await sepoliaPublicClient.waitForTransactionReceipt({ hash: txHash, ...receiptWaitOptions });
+    await ctx.sepolia.publicClient.waitForTransactionReceipt({ hash: txHash, ...receiptWaitOptions });
     logStep("Test1: tx confirmed, fetching MessageSent");
-
-    const events = (await sepoliaPublicClient.getContractEvents({
-      address: inboxSepolia.address,
-      abi: inboxSepolia.abi,
-      eventName: "MessageSent",
-      fromBlock,
-      strict: true,
-    })) as any[];
-
-    logStep(`Test1: MessageSent events=${events.length}`);
-    assert.ok(events.length > 0);
-    const messageEvent = events[events.length - 1];
+    const messageEvent = await getMessageSentEvent(ctx.sepolia.publicClient, ctx.contracts.inboxSepolia, fromBlock);
     const requestId = messageEvent.args.requestId!;
 
     const expectedSelector = toFunctionSelector("add(uint256,uint256,address)");
@@ -416,11 +376,11 @@ describe("MpcAdder (system)", async function () {
     );
     const encodedOwner = encodeAbiParameters(
       [{ type: "address" }],
-      [sepoliaWallet.account.address]
+      [ctx.sepolia.wallet.account.address]
     );
     const expectedArgsData = `0x${encodedA.slice(2)}${encodedB.slice(2)}${encodedOwner.slice(2)}`;
 
-    const request = await inboxSepolia.read.requests([requestId]);
+    const request = await ctx.contracts.inboxSepolia.read.requests([requestId]);
     logStep("Test1: loaded request from hardhat inbox");
     const targetChainId = getTupleField(request, "targetChainId", 1);
     const targetContract = getTupleField(request, "targetContract", 2);
@@ -433,18 +393,18 @@ describe("MpcAdder (system)", async function () {
     const executed = getTupleField(request, "executed", 10);
     const sourceRequestId = getTupleField(request, "sourceRequestId", 11);
 
-    assert.equal(Number(targetChainId), Number(cotiChainId));
-    assert.equal(targetContract.toLowerCase(), mpcExecutor.address.toLowerCase());
-    assert.equal(callerContract.toLowerCase(), mpcAdder.address.toLowerCase());
-    assert.equal(originalSender.toLowerCase(), mpcAdder.address.toLowerCase());
+    assert.equal(Number(targetChainId), Number(ctx.chainIds.coti));
+    assert.equal(targetContract.toLowerCase(), ctx.contracts.mpcExecutor.address.toLowerCase());
+    assert.equal(callerContract.toLowerCase(), ctx.contracts.mpcAdder.address.toLowerCase());
+    assert.equal(originalSender.toLowerCase(), ctx.contracts.mpcAdder.address.toLowerCase());
     assert.equal(requestSelector, expectedSelector);
     assert.equal(requestData, expectedArgsData);
     assert.equal(isTwoWay, true);
     assert.equal(executed, false);
     assert.equal(sourceRequestId, zeroHash);
 
-    assert.equal(Number(messageEvent.args.targetChainId), Number(cotiChainId));
-    assert.equal(messageEvent.args.targetContract?.toLowerCase(), mpcExecutor.address.toLowerCase());
+    assert.equal(Number(messageEvent.args.targetChainId), Number(ctx.chainIds.coti));
+    assert.equal(messageEvent.args.targetContract?.toLowerCase(), ctx.contracts.mpcExecutor.address.toLowerCase());
     const eventMethodCall = messageEvent.args.methodCall;
     assert.equal(eventMethodCall.selector, expectedSelector);
     assert.equal(eventMethodCall.data, expectedArgsData);
@@ -452,29 +412,20 @@ describe("MpcAdder (system)", async function () {
     assert.equal(messageEvent.args.errorSelector, toFunctionSelector("onDefaultMpcError(bytes32)"));
   });
 
-  it.only("Should execute the MPC request on COTI and create a response", async function () {
+  it("Should execute the MPC request on COTI and create a response", async function () {
     const a = 7n;
     const b = 9n;
 
     logStep("Test2: encrypt inputs");
-    const fromBlock = await sepoliaPublicClient.getBlockNumber();
+    const fromBlock = await ctx.sepolia.publicClient.getBlockNumber();
     const itA = await buildEncryptedInput(a);
     const itB = await buildEncryptedInput(b);
     logStep("Test2: sending add()");
-    const txHash = await mpcAdderAsCoti.write.add([itA, itB], nextSepoliaOverrides());
+    const txHash = await ctx.contracts.mpcAdderAsCoti.write.add([itA, itB]);
     logStep(`Test2: waiting for tx ${txHash}`);
-    await sepoliaPublicClient.waitForTransactionReceipt({ hash: txHash, ...receiptWaitOptions });
+    await ctx.sepolia.publicClient.waitForTransactionReceipt({ hash: txHash, ...receiptWaitOptions });
     logStep("Test2: tx confirmed, processing on COTI");
-
-    const events = (await sepoliaPublicClient.getContractEvents({
-      address: inboxSepolia.address,
-      abi: inboxSepolia.abi,
-      eventName: "MessageSent",
-      fromBlock,
-      strict: true,
-    })) as any[];
-
-    const messageEvent = events[events.length - 1];
+    const messageEvent = await getMessageSentEvent(ctx.sepolia.publicClient, ctx.contracts.inboxSepolia, fromBlock);
     const requestId = messageEvent.args.requestId!;
     const methodCall = messageEvent.args.methodCall;
     const callbackSelector = messageEvent.args.callbackSelector ?? "0x00000000";
@@ -482,13 +433,13 @@ describe("MpcAdder (system)", async function () {
     assert.ok(methodCall);
 
     logStep("Test2: calling batchProcessRequests on COTI");
-    const processTxHash = await inboxCoti.write.batchProcessRequests([
-      BigInt(sepoliaChainId),
+    const processTxHash = await ctx.contracts.inboxCoti.write.batchProcessRequests([
+      BigInt(ctx.chainIds.sepolia),
       [
         {
           requestId,
-          sourceContract: mpcAdder.address,
-          targetContract: mpcExecutor.address,
+          sourceContract: ctx.contracts.mpcAdder.address,
+          targetContract: ctx.contracts.mpcExecutor.address,
           methodCall,
           callbackSelector,
           errorSelector,
@@ -497,22 +448,20 @@ describe("MpcAdder (system)", async function () {
         },
       ],
       [],
-    ], await nextCotiOverrides());
+    ]);
     logStep(`Test2: waiting for COTI tx ${processTxHash}`);
-    await cotiPublicClient.waitForTransactionReceipt({ hash: processTxHash, ...receiptWaitOptions });
+    await ctx.coti.publicClient.waitForTransactionReceipt({ hash: processTxHash, ...receiptWaitOptions });
     logStep("Test2: COTI processed, fetching response");
 
-    const incoming = await inboxCoti.read.incomingRequests([requestId]);
+    await ctx.contracts.inboxCoti.read.incomingRequests([requestId]);
     logStep("Test2: loaded incoming request on COTI");
-    const incomingTargetChainId = getTupleField(incoming, "targetChainId", 1);
-    const incomingExecuted = getTupleField(incoming, "executed", 10);
 
     let response: any;
     try {
-      response = await inboxCoti.read.getInboxResponse([requestId]);
+      response = await ctx.contracts.inboxCoti.read.getInboxResponse([requestId]);
       logStep("Test2: loaded inbox response on COTI");
     } catch (error) {
-      const inboxError = await inboxCoti.read.errors([requestId]);
+      const inboxError = await ctx.contracts.inboxCoti.read.errors([requestId]);
       const errorCode = getTupleField(inboxError, "errorCode", 1);
       const errorMessage = getTupleField(inboxError, "errorMessage", 2);
       logStep(`Test2: no response, errorCode=${errorCode} errorMessage=${errorMessage}`);
@@ -520,16 +469,7 @@ describe("MpcAdder (system)", async function () {
     }
     assert.ok(response);
 
-    const responseCount = await inboxCoti.read.getRequestsLen();
-    logStep(`Test2: response requests count=${responseCount}`);
-    assert.ok(Number(responseCount) > 0);
-    const responseRequests = await inboxCoti.read.getRequests([0, responseCount]);
-    logStep("Test2: fetched response requests list");
-
-    const responseRequest = (responseRequests as any[]).find(
-      (req) => getTupleField(req, "sourceRequestId", 11) === requestId
-    );
-    assert.ok(responseRequest);
+    const responseRequest = await findResponseRequest(ctx.contracts.inboxCoti, requestId, "Test2");
 
     const responseRequestId = getTupleField(responseRequest, "requestId", 0);
     const responseTargetChainId = getTupleField(responseRequest, "targetChainId", 1);
@@ -549,8 +489,8 @@ describe("MpcAdder (system)", async function () {
     assert.ok(responseData);
     assert.ok(responseSelector);
 
-    assert.equal(Number(responseTargetChainId), sepoliaChainId);
-    assert.equal(responseTargetContract.toLowerCase(), mpcAdder.address.toLowerCase());
+    assert.equal(Number(responseTargetChainId), ctx.chainIds.sepolia);
+    assert.equal(responseTargetContract.toLowerCase(), ctx.contracts.mpcAdder.address.toLowerCase());
     assert.equal(responseIsTwoWay, false);
     assert.equal(responseSourceRequestId, requestId);
     assert.equal(responseCallbackSelector, "0x00000000");
@@ -586,8 +526,8 @@ describe("MpcAdder (system)", async function () {
     };
 
     logStep("Test2: applying response on hardhat inbox");
-    await inboxSepolia.write.batchProcessRequests([
-      cotiChainId,
+    await ctx.contracts.inboxSepolia.write.batchProcessRequests([
+      ctx.chainIds.coti,
       [
         {
           requestId: responseRequestId,
@@ -601,7 +541,7 @@ describe("MpcAdder (system)", async function () {
         },
       ],
       [],
-    ], nextSepoliaOverrides());
+    ]);
     logStep("Test2: response applied on hardhat");
   });
 
@@ -610,24 +550,16 @@ describe("MpcAdder (system)", async function () {
     const b = 27n;
 
     logStep("Test3: encrypt inputs");
-    const fromBlock = await sepoliaPublicClient.getBlockNumber();
+    const fromBlock = await ctx.sepolia.publicClient.getBlockNumber();
     const itA = await buildEncryptedInput(a);
     const itB = await buildEncryptedInput(b);
     logStep("Test3: sending add()");
-    const txHash = await mpcAdderAsCoti.write.add([itA, itB], nextSepoliaOverrides());
+    const txHash = await ctx.contracts.mpcAdderAsCoti.write.add([itA, itB]);
     logStep(`Test3: waiting for tx ${txHash}`);
-    await sepoliaPublicClient.waitForTransactionReceipt({ hash: txHash, ...receiptWaitOptions });
+    await ctx.sepolia.publicClient.waitForTransactionReceipt({ hash: txHash, ...receiptWaitOptions });
     logStep("Test3: tx confirmed, processing on COTI");
 
-    const events = (await sepoliaPublicClient.getContractEvents({
-      address: inboxSepolia.address,
-      abi: inboxSepolia.abi,
-      eventName: "MessageSent",
-      fromBlock,
-      strict: true,
-    })) as any[];
-
-    const messageEvent = events[events.length - 1];
+    const messageEvent = await getMessageSentEvent(ctx.sepolia.publicClient, ctx.contracts.inboxSepolia, fromBlock);
     const requestId = messageEvent.args.requestId!;
     const methodCall = messageEvent.args.methodCall;
     const callbackSelector = messageEvent.args.callbackSelector ?? "0x00000000";
@@ -635,13 +567,13 @@ describe("MpcAdder (system)", async function () {
     assert.ok(methodCall);
 
     logStep("Test3: calling batchProcessRequests on COTI");
-    const processTxHash = await inboxCoti.write.batchProcessRequests([
-      BigInt(sepoliaChainId),
+    const processTxHash = await ctx.contracts.inboxCoti.write.batchProcessRequests([
+      BigInt(ctx.chainIds.sepolia),
       [
         {
           requestId,
-          sourceContract: mpcAdder.address,
-          targetContract: mpcExecutor.address,
+          sourceContract: ctx.contracts.mpcAdder.address,
+          targetContract: ctx.contracts.mpcExecutor.address,
           methodCall,
           callbackSelector,
           errorSelector,
@@ -650,20 +582,12 @@ describe("MpcAdder (system)", async function () {
         },
       ],
       [],
-    ], await nextCotiOverrides());
+    ]);
     logStep(`Test3: waiting for COTI tx ${processTxHash}`);
-    await cotiPublicClient.waitForTransactionReceipt({ hash: processTxHash, ...receiptWaitOptions });
+    await ctx.coti.publicClient.waitForTransactionReceipt({ hash: processTxHash, ...receiptWaitOptions });
     logStep("Test3: COTI processed, applying response on hardhat");
 
-    const responseCount = await inboxCoti.read.getRequestsLen();
-    logStep(`Test3: response requests count=${responseCount}`);
-    assert.ok(Number(responseCount) > 0);
-    const responseRequests = await inboxCoti.read.getRequests([0, responseCount]);
-    logStep("Test3: fetched response requests list");
-    const responseRequest = (responseRequests as any[]).find(
-      (req) => getTupleField(req, "sourceRequestId", 11) === requestId
-    );
-    assert.ok(responseRequest);
+    const responseRequest = await findResponseRequest(ctx.contracts.inboxCoti, requestId, "Test3");
 
     const responseRequestId = getTupleField(responseRequest, "requestId", 0);
     const responseTargetContract = getTupleField(responseRequest, "targetContract", 2);
@@ -672,7 +596,7 @@ describe("MpcAdder (system)", async function () {
     const responseCallbackSelector = getTupleField(responseRequest, "callbackSelector", 7) ?? "0x00000000";
     const responseErrorSelector = getTupleField(responseRequest, "errorSelector", 8) ?? "0x00000000";
     const responseSourceRequestId = getTupleField(responseRequest, "sourceRequestId", 11);
-    const response = await inboxCoti.read.getInboxResponse([requestId]);
+    const response = await ctx.contracts.inboxCoti.read.getInboxResponse([requestId]);
 
     const receiveCData = encodeFunctionData({
       abi: [
@@ -695,8 +619,8 @@ describe("MpcAdder (system)", async function () {
     };
 
     logStep("Test3: applying response on hardhat inbox");
-    await inboxSepolia.write.batchProcessRequests([
-      cotiChainId,
+    await ctx.contracts.inboxSepolia.write.batchProcessRequests([
+      ctx.chainIds.coti,
       [
         {
           requestId: responseRequestId,
@@ -710,16 +634,16 @@ describe("MpcAdder (system)", async function () {
         },
       ],
       [],
-    ], nextSepoliaOverrides());
+    ]);
     logStep("Test3: response applied, decrypting result");
 
-    const encryptedResult = await mpcAdder.read.resultCiphertext();
+    const encryptedResult = await ctx.contracts.mpcAdder.read.resultCiphertext();
     const ciphertext =
       getTupleField(encryptedResult, "ciphertext", 0) ??
       getTupleField(encryptedResult, "value", 0) ??
       encryptedResult;
 
-    const decrypted = decryptUint(ciphertext, userKey);
+    const decrypted = decryptUint(ciphertext, ctx.crypto.userKey);
     assert.equal(decrypted, a + b);
   });
 });

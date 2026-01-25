@@ -41,7 +41,7 @@ describe("Adder", async function () {
     const b = 30n;
 
     const fromBlock = await publicClient1.getBlockNumber();
-    const txHash = await adder.write.add([a, b]);
+    const txHash = await adder.write.add([a, b, wallet1.account.address]);
     await publicClient1.waitForTransactionReceipt({ hash: txHash });
 
     const events = (await publicClient1.getContractEvents({
@@ -73,13 +73,17 @@ describe("Adder", async function () {
       functionName: "add",
       args: [a, b, wallet1.account.address],
     });
+    const expectedSelector = expectedData.slice(0, 10);
+    const expectedArgsData = `0x${expectedData.slice(10)}`;
 
     const request = await inbox1.read.requests([requestId]);
     const targetChainId = getTupleField(request, "targetChainId", 1);
     const targetContract = getTupleField(request, "targetContract", 2);
     const callerContract = getTupleField(request, "callerContract", 4);
     const originalSender = getTupleField(request, "originalSender", 5);
-    const requestData = getTupleField(request, "data", 3);
+    const requestMethodCall = getTupleField(request, "methodCall", 3);
+    const requestSelector = getTupleField(requestMethodCall, "selector", 0);
+    const requestData = getTupleField(requestMethodCall, "data", 1);
     const isTwoWay = getTupleField(request, "isTwoWay", 9);
     const executed = getTupleField(request, "executed", 10);
     const sourceRequestId = getTupleField(request, "sourceRequestId", 11);
@@ -88,14 +92,17 @@ describe("Adder", async function () {
     assert.equal(targetContract.toLowerCase(), mpcExecutor.address.toLowerCase());
     assert.equal(callerContract.toLowerCase(), adder.address.toLowerCase());
     assert.equal(originalSender.toLowerCase(), adder.address.toLowerCase());
-    assert.equal(requestData, expectedData);
+    assert.equal(requestSelector, expectedSelector);
+    assert.equal(requestData, expectedArgsData);
     assert.equal(isTwoWay, true);
     assert.equal(executed, false);
     assert.equal(sourceRequestId, zeroHash);
 
     assert.equal(Number(messageEvent.args.targetChainId), chain2Id);
     assert.equal(messageEvent.args.targetContract?.toLowerCase(), mpcExecutor.address.toLowerCase());
-    assert.equal(messageEvent.args.data, expectedData);
+    const eventMethodCall = messageEvent.args.methodCall;
+    assert.equal(eventMethodCall.selector, expectedSelector);
+    assert.equal(eventMethodCall.data, expectedArgsData);
     assert.equal(messageEvent.args.callbackSelector, toFunctionSelector("receiveC(bytes)"));
     assert.equal(messageEvent.args.errorSelector, toFunctionSelector("onDefaultMpcError(bytes32)"));
 
@@ -111,7 +118,7 @@ describe("Adder", async function () {
     const b = 9n;
 
     const fromBlock = await publicClient1.getBlockNumber();
-    const txHash = await adder.write.add([a, b]);
+    const txHash = await adder.write.add([a, b, wallet1.account.address]);
     await publicClient1.waitForTransactionReceipt({ hash: txHash });
 
     const events = (await publicClient1.getContractEvents({
@@ -125,9 +132,9 @@ describe("Adder", async function () {
     const messageEvent = events[events.length - 1];
     const requestId = messageEvent.args.requestId!;
     const request = await inbox1.read.requests([requestId]);
-    const data =
-      getTupleField(request, "data", 3) ??
-      messageEvent.args.data;
+    const methodCall =
+      getTupleField(request, "methodCall", 3) ??
+      messageEvent.args.methodCall;
     const callbackSelector =
       getTupleField(request, "callbackSelector", 7) ??
       messageEvent.args.callbackSelector ??
@@ -136,7 +143,7 @@ describe("Adder", async function () {
       getTupleField(request, "errorSelector", 8) ??
       messageEvent.args.errorSelector ??
       "0x00000000";
-    assert.ok(data);
+    assert.ok(methodCall);
 
     const execFromBlock = await publicClient2.getBlockNumber();
     await inbox2.write.batchProcessRequests([
@@ -146,7 +153,7 @@ describe("Adder", async function () {
           requestId,
           sourceContract: adder.address,
           targetContract: mpcExecutor.address,
-          data,
+          methodCall,
           callbackSelector,
           errorSelector,
           isTwoWay: true,
@@ -187,7 +194,7 @@ describe("Adder", async function () {
     const b = 27n;
 
     const fromBlock = await publicClient1.getBlockNumber();
-    const txHash = await adder.write.add([a, b]);
+    const txHash = await adder.write.add([a, b, wallet1.account.address]);
     await publicClient1.waitForTransactionReceipt({ hash: txHash });
 
     const events = (await publicClient1.getContractEvents({
@@ -201,9 +208,9 @@ describe("Adder", async function () {
     const messageEvent = events[events.length - 1];
     const requestId = messageEvent.args.requestId!;
     const request = await inbox1.read.requests([requestId]);
-    const data =
-      getTupleField(request, "data", 3) ??
-      messageEvent.args.data;
+    const methodCall =
+      getTupleField(request, "methodCall", 3) ??
+      messageEvent.args.methodCall;
     const callbackSelector =
       getTupleField(request, "callbackSelector", 7) ??
       messageEvent.args.callbackSelector ??
@@ -212,7 +219,7 @@ describe("Adder", async function () {
       getTupleField(request, "errorSelector", 8) ??
       messageEvent.args.errorSelector ??
       "0x00000000";
-    assert.ok(data);
+    assert.ok(methodCall);
 
     await inbox2.write.batchProcessRequests([
       BigInt(chain1Id),
@@ -221,7 +228,7 @@ describe("Adder", async function () {
           requestId,
           sourceContract: adder.address,
           targetContract: mpcExecutor.address,
-          data,
+          methodCall,
           callbackSelector,
           errorSelector,
           isTwoWay: true,
@@ -243,7 +250,9 @@ describe("Adder", async function () {
     const responseRequestId = getTupleField(responseRequest, "requestId", 0);
     const responseTargetChainId = getTupleField(responseRequest, "targetChainId", 1);
     const responseTargetContract = getTupleField(responseRequest, "targetContract", 2);
-    const responseData = getTupleField(responseRequest, "data", 3);
+    const responseMethodCall = getTupleField(responseRequest, "methodCall", 3);
+    const responseSelector = getTupleField(responseMethodCall, "selector", 0);
+    const responseData = getTupleField(responseMethodCall, "data", 1);
     const responseSourceContract = getTupleField(responseRequest, "originalSender", 5);
     const responseCallbackSelector = getTupleField(responseRequest, "callbackSelector", 7) ?? "0x00000000";
     const responseErrorSelector = getTupleField(responseRequest, "errorSelector", 8) ?? "0x00000000";
@@ -254,11 +263,33 @@ describe("Adder", async function () {
     assert.ok(responseTargetContract);
     assert.ok(responseSourceContract);
     assert.ok(responseData);
+    assert.ok(responseSelector);
 
     assert.equal(Number(responseTargetChainId), chain1Id);
     assert.equal(responseTargetContract.toLowerCase(), adder.address.toLowerCase());
     assert.equal(responseIsTwoWay, false);
     assert.equal(responseSourceRequestId, requestId);
+
+    const responsePayload = await inbox2.read.getInboxResponse([requestId]);
+    const receiveCData = encodeFunctionData({
+      abi: [
+        {
+          type: "function",
+          name: "receiveC",
+          stateMutability: "nonpayable",
+          inputs: [{ name: "data", type: "bytes" }],
+          outputs: [],
+        },
+      ],
+      functionName: "receiveC",
+      args: [responsePayload],
+    });
+    const applyMethodCall = {
+      selector: "0x00000000",
+      data: receiveCData,
+      datatypes: [],
+      datalens: [],
+    };
 
     await inbox1.write.batchProcessRequests([
       BigInt(chain2Id),
@@ -267,7 +298,7 @@ describe("Adder", async function () {
           requestId: responseRequestId,
           sourceContract: responseSourceContract,
           targetContract: responseTargetContract,
-          data: responseData,
+          methodCall: applyMethodCall,
           callbackSelector: responseCallbackSelector,
           errorSelector: responseErrorSelector,
           isTwoWay: false,

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import "./IInbox.sol";
+import "./mpccodec/MpcAbiCodec.sol";
 
 contract InboxBase is IInbox {
     uint256 public immutable chainId;
@@ -34,7 +35,7 @@ contract InboxBase is IInbox {
         bytes32 indexed requestId,
         uint256 indexed targetChainId,
         address indexed targetContract,
-        bytes data,
+        MpcMethodCall methodCall,
         bytes4 callbackSelector,
         bytes4 errorSelector
     );
@@ -43,7 +44,7 @@ contract InboxBase is IInbox {
         bytes32 indexed requestId,
         uint256 indexed sourceChainId,
         address indexed sourceContract,
-        bytes data
+        MpcMethodCall methodCall
     );
     
     event ResponseReceived(
@@ -62,33 +63,35 @@ contract InboxBase is IInbox {
     }
 
     /// @notice Sends a two-way message to a target chain with callback and error handlers
+    /// @dev If methodCall.selector is zero, methodCall.data must be full calldata
+    ///      (abi.encodeWithSelector) and datatypes/datalens must be empty.
     /// @param targetChainId The chain ID of the target chain
     /// @param targetContract The address of the target contract on the target chain
-    /// @param data The encoded function call data to send
+    /// @param methodCall The method call to send
     /// @param callbackSelector The function selector to call when response is received
     /// @param errorSelector The function selector to call when an error occurs
     /// @return requestId The unique request ID for this message
     function sendTwoWayMessage(
         uint256 targetChainId,
         address targetContract,
-        bytes memory data,
+        MpcMethodCall calldata methodCall,
         bytes4 callbackSelector,
         bytes4 errorSelector
     ) external virtual returns (bytes32) {
-        return _sendTwoWayMessage(targetChainId, targetContract, data, callbackSelector, errorSelector);
+        return _sendTwoWayMessage(targetChainId, targetContract, methodCall, callbackSelector, errorSelector);
     }
     
     function _sendTwoWayMessage(
         uint256 targetChainId,
         address targetContract,
-        bytes memory data,
+        MpcMethodCall memory methodCall,
         bytes4 callbackSelector,
         bytes4 errorSelector
     ) internal returns (bytes32) {
         return _createRequest(
             targetChainId,
             targetContract,
-            data,
+            methodCall,
             callbackSelector,
             errorSelector,
             true,
@@ -97,31 +100,33 @@ contract InboxBase is IInbox {
     }
 
     /// @notice Sends a one-way message to a target chain with only an error handler
+    /// @dev If methodCall.selector is zero, methodCall.data must be full calldata
+    ///      (abi.encodeWithSelector) and datatypes/datalens must be empty.
     /// @param targetChainId The chain ID of the target chain
     /// @param targetContract The address of the target contract on the target chain
-    /// @param data The encoded function call data to send
+    /// @param methodCall The method call to send
     /// @param errorSelector The function selector to call when an error occurs
     /// @return requestId The unique request ID for this message
     function sendOneWayMessage(
         uint256 targetChainId,
         address targetContract,
-        bytes memory data,
+        MpcMethodCall calldata methodCall,
         bytes4 errorSelector
     ) external returns (bytes32) {
-        return _sendOneWayMessage(targetChainId, targetContract, data, errorSelector, bytes32(0));
+        return _sendOneWayMessage(targetChainId, targetContract, methodCall, errorSelector, bytes32(0));
     }
     
     function _sendOneWayMessage(
         uint256 targetChainId,
         address targetContract,
-        bytes memory data,
+        MpcMethodCall memory methodCall,
         bytes4 errorSelector,
         bytes32 sourceRequestId
     ) internal returns (bytes32) {
         return _createRequest(
             targetChainId,
             targetContract,
-            data,
+            methodCall,
             bytes4(0),
             errorSelector,
             false,
@@ -171,10 +176,12 @@ contract InboxBase is IInbox {
         require(incomingRequest.requestId != bytes32(0), "Inbox: request not found");
         
         // Create a new one-way request to send response back to source chain
-        bytes memory responseData = abi.encodeWithSelector(
-            incomingRequest.callbackSelector,
-            data
-        );
+        MpcMethodCall memory responseMethodCall = MpcMethodCall({
+            selector: bytes4(0),
+            data: abi.encodePacked(this.respond.selector, data),
+            datatypes: new bytes8[](0),
+            datalens: new bytes32[](0)
+        });
         
         // Get the original sender contract from the incoming request
         // The originalSender is the contract on the source chain that sent the message
@@ -186,7 +193,7 @@ contract InboxBase is IInbox {
         _sendOneWayMessage(
             _currentContext.remoteChainId,
             originalSenderContract,
-            responseData,
+            responseMethodCall,
             incomingRequest.errorSelector, // Use error handler from original request
             sourceRequestId // Link back to original request
         );
@@ -259,7 +266,7 @@ contract InboxBase is IInbox {
     function _createRequest(
         uint256 targetChainId,
         address targetContract,
-        bytes memory data,
+        MpcMethodCall memory methodCall,
         bytes4 callbackSelector,
         bytes4 errorSelector,
         bool isTwoWay,
@@ -278,7 +285,7 @@ contract InboxBase is IInbox {
             requestId: requestId,
             targetChainId: targetChainId,
             targetContract: targetContract,
-            data: data,
+            methodCall: methodCall,
             callerContract: msg.sender,
             originalSender: msg.sender,
             timestamp: uint64(block.timestamp),
@@ -296,7 +303,7 @@ contract InboxBase is IInbox {
             requestId,
             targetChainId,
             targetContract,
-            data,
+            methodCall,
             callbackSelector,
             errorSelector
         );
@@ -308,6 +315,27 @@ contract InboxBase is IInbox {
         require(chainId_ <= type(uint128).max, "Inbox: chainId too large");
         require(nonce <= type(uint128).max, "Inbox: nonce too large");
         return bytes32((uint256(uint128(chainId_)) << 128) | uint256(uint128(nonce)));
+    }
+
+    /// @notice Builds calldata for a request, supporting MPC re-encoding and a compact raw mode.
+    /// @dev If selector is zero, data is assumed to be full calldata (abi.encodeWithSelector)
+    ///      and datatypes/datalens must be empty. Otherwise, if datatypes are provided,
+    ///      arguments are re-encoded to map it-* types to gt-* before dispatch.
+    function _encodeMethodCall(MpcMethodCall memory methodCall) internal returns (bytes memory) {
+        if (methodCall.selector == bytes4(0)) {
+            require(methodCall.datatypes.length == 0, "Inbox: raw call has datatypes");
+            require(methodCall.datalens.length == 0, "Inbox: raw call has datalens");
+            return methodCall.data;
+        }
+
+        IInbox.MpcMethodCall memory codecCall = IInbox.MpcMethodCall({
+            selector: methodCall.selector,
+            data: methodCall.data,
+            datatypes: methodCall.datatypes,
+            datalens: methodCall.datalens
+        });
+
+        return MpcAbiCodec.reEncodeWithGt(codecCall);
     }
     function _getOriginalSender(bytes32 requestId) internal view returns (address) {
         return requests[requestId].originalSender;

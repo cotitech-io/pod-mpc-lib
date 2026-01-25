@@ -2,11 +2,18 @@
 pragma solidity ^0.8.28;
 
 interface IInbox {
+    struct MpcMethodCall {
+        bytes4 selector;
+        bytes data;
+        bytes8[] datatypes;
+        bytes32[] datalens;
+    }
+
     struct Request {
         bytes32 requestId;
         uint256 targetChainId;
         address targetContract;
-        bytes data;
+        MpcMethodCall methodCall;
         address callerContract;
         address originalSender;
         uint64 timestamp;
@@ -37,7 +44,7 @@ interface IInbox {
     function sendTwoWayMessage(
         uint256 targetChainId,
         address targetContract,
-        bytes memory data,
+        MpcMethodCall calldata methodCall,
         bytes4 callbackSelector,
         bytes4 errorSelector
     ) external returns (bytes32);
@@ -45,7 +52,7 @@ interface IInbox {
     function sendOneWayMessage(
         uint256 targetChainId,
         address targetContract,
-        bytes memory data,
+        MpcMethodCall calldata methodCall,
         bytes4 errorSelector
     ) external returns (bytes32);
 

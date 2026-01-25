@@ -8,7 +8,8 @@ contract InboxMiner is InboxBase, IInboxMiner {
     constructor(uint256 _chainId) InboxBase(_chainId) {}
 
     /// @notice Executes a mined incoming request on the target chain
-    /// @dev Sets execution context, calls target, clears context, marks executed, and records errors
+    /// @dev Builds calldata from the request (raw calldata or MPC re-encode), sets execution context,
+    ///      calls target, clears context, marks executed, and records errors.
     /// @param incomingRequest The incoming request to execute
     /// @param sourceChainId The chain ID that sent the request
     function _executeIncomingRequest(
@@ -24,9 +25,9 @@ contract InboxMiner is InboxBase, IInboxMiner {
 
         // Deliver message to target contract
         address targetContract = incomingRequest.targetContract;
-        bytes memory data = incomingRequest.data;
+        bytes memory callData = _encodeMethodCall(incomingRequest.methodCall);
 
-        (bool success, bytes memory returnData) = targetContract.call(data);
+        (bool success, bytes memory returnData) = targetContract.call(callData);
 
         // Always clear execution context after execution
         _currentContext = ExecutionContext({
@@ -52,7 +53,8 @@ contract InboxMiner is InboxBase, IInboxMiner {
     }
 
     /// @notice Processes mined requests and errors from a source chain
-    /// @dev Handles response requests by triggering callbacks and processes errors by triggering error handlers
+    /// @dev Handles response requests by triggering callbacks and processes errors by triggering error handlers.
+    ///      Response data is stored from the executed request's encoded calldata.
     /// @param sourceChainId The chain ID that the requests/errors came from
     /// @param mined Array of mined requests (responses) to process
     /// @param minedErrors Array of mined errors to process
@@ -77,7 +79,7 @@ contract InboxMiner is InboxBase, IInboxMiner {
                     requestId: requestId,
                     targetChainId: sourceChainId,
                     targetContract: minedRequest.targetContract,
-                    data: minedRequest.data,
+                    methodCall: minedRequest.methodCall,
                     callerContract: minedRequest.sourceContract,
                     originalSender: minedRequest.sourceContract,
                     timestamp: uint64(block.timestamp),
@@ -91,7 +93,7 @@ contract InboxMiner is InboxBase, IInboxMiner {
                 incomingRequests[requestId] = newIncomingRequest;
                 incomingRequest = incomingRequests[requestId];
 
-                emit MessageReceived(requestId, sourceChainId, minedRequest.sourceContract, minedRequest.data);
+                emit MessageReceived(requestId, sourceChainId, minedRequest.sourceContract, minedRequest.methodCall);
             }
 
             if (!incomingRequest.executed) {
@@ -109,13 +111,13 @@ contract InboxMiner is InboxBase, IInboxMiner {
                 if (originalRequest.requestId != bytes32(0) && !originalRequest.executed) {
                     Response memory response = Response({
                         requestId: originalRequestId,
-                        response: incomingRequest.data
+                        response: _encodeMethodCall(incomingRequest.methodCall)
                     });
 
                     responses[originalRequestId] = response;
                     originalRequest.executed = true;
 
-                    emit ResponseReceived(originalRequestId, incomingRequest.data);
+                    emit ResponseReceived(originalRequestId, _encodeMethodCall(incomingRequest.methodCall));
                 }
             }
         }

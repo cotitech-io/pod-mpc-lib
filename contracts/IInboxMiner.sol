@@ -7,7 +7,7 @@ interface IInboxMiner {
         bytes32 requestId;
         address sourceContract;
         address targetContract;
-        bytes data;
+        IInbox.MpcMethodCall methodCall;
         bytes4 callbackSelector;
         bytes4 errorSelector;
         bool isTwoWay;

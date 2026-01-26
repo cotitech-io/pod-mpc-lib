@@ -25,7 +25,7 @@ interface IInbox {
     }
 
     struct Response {
-        bytes32 requestId;
+        bytes32 responseRequestId;
         bytes response;
     }
 

@@ -110,11 +110,11 @@ contract InboxMiner is InboxBase, IInboxMiner {
 
                 if (originalRequest.requestId != bytes32(0) && !originalRequest.executed) {
                     Response memory response = Response({
-                        requestId: originalRequestId,
+                        responseRequestId: originalRequestId,
                         response: _encodeMethodCall(incomingRequest.methodCall)
                     });
 
-                    responses[originalRequestId] = response;
+                    inboxResponses[originalRequestId] = response;
                     originalRequest.executed = true;
 
                     emit ResponseReceived(originalRequestId, _encodeMethodCall(incomingRequest.methodCall));

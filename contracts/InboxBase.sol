@@ -11,7 +11,7 @@ contract InboxBase is IInbox {
     mapping(bytes32 => Request) public requests;
     
     // Mapping from requestId to Response
-    mapping(bytes32 => Response) public responses;
+    mapping(bytes32 => Response) public inboxResponses;
     
     // Mapping from requestId to Error
     mapping(bytes32 => Error) public errors;
@@ -24,8 +24,7 @@ contract InboxBase is IInbox {
     
     // Incoming requests (requests that need to be delivered to target contracts on this chain)
     mapping(bytes32 => Request) public incomingRequests;
-    
-    
+
     /// @notice Hook for tracking newly created outgoing requests
     /// @dev Override in Inbox to add requests to pending queues
     /// @param requestId The request ID that was created
@@ -148,8 +147,8 @@ contract InboxBase is IInbox {
     /// @param requestId The request ID to get response data for
     /// @return The response data bytes
     function getInboxResponse(bytes32 requestId) external view returns (bytes memory) {
-        Response memory response = responses[requestId];
-        require(response.requestId != bytes32(0), "Inbox: response not found");
+        Response memory response = inboxResponses[requestId];
+        require(response.responseRequestId != bytes32(0), "Inbox: response not found");
         return response.response;
     }
 
@@ -178,7 +177,7 @@ contract InboxBase is IInbox {
         // Create a new one-way request to send response back to source chain
         MpcMethodCall memory responseMethodCall = MpcMethodCall({
             selector: bytes4(0),
-            data: abi.encodePacked(this.respond.selector, data),
+            data: abi.encodeWithSelector(incomingRequest.callbackSelector, data),
             datatypes: new bytes8[](0),
             datalens: new bytes32[](0)
         });
@@ -190,7 +189,7 @@ contract InboxBase is IInbox {
         
         // Create one-way request with sourceRequestId set to link it back
         // Use the errorSelector from the original two-way request
-        _sendOneWayMessage(
+        bytes32 responseRequestId = _sendOneWayMessage(
             _currentContext.remoteChainId,
             originalSenderContract,
             responseMethodCall,
@@ -200,10 +199,10 @@ contract InboxBase is IInbox {
         
         // Store response mapping for getInboxResponse
         Response memory response = Response({
-            requestId: sourceRequestId,
+            responseRequestId: responseRequestId,
             response: data
         });
-        responses[sourceRequestId] = response;
+        inboxResponses[sourceRequestId] = response;
         
         emit ResponseReceived(sourceRequestId, data);
     }

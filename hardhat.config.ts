@@ -1,5 +1,10 @@
+import "dotenv/config";
 import hardhatToolboxViemPlugin from "@nomicfoundation/hardhat-toolbox-viem";
 import { configVariable, defineConfig } from "hardhat/config";
+
+const envOrConfig = (key: string) => process.env[key] ?? configVariable(key);
+const privateKeyFor = (key: string) =>
+  process.env[key] ?? process.env.PRIVATE_KEY ?? configVariable(key);
 
 export default defineConfig({
   plugins: [hardhatToolboxViemPlugin],
@@ -7,10 +12,18 @@ export default defineConfig({
     profiles: {
       default: {
         version: "0.8.28",
+        settings: {
+          evmVersion: "paris",
+          optimizer: {
+            enabled: true,
+            runs: 200,
+          },
+        },
       },
       production: {
         version: "0.8.28",
         settings: {
+          evmVersion: "paris",
           optimizer: {
             enabled: true,
             runs: 200,
@@ -25,6 +38,14 @@ export default defineConfig({
     hardhat: {
       type: "edr-simulated",
       chainId: parseInt(process.env.HARDHAT_CHAIN_ID || "31337"),
+      accounts: process.env.PRIVATE_KEY
+        ? [
+            {
+              privateKey: process.env.PRIVATE_KEY,
+              balance: "100000000000000000000",
+            },
+          ]
+        : undefined,
     },
     hardhatMainnet: {
       type: "edr-simulated",
@@ -37,8 +58,14 @@ export default defineConfig({
     sepolia: {
       type: "http",
       chainType: "l1",
-      url: configVariable("SEPOLIA_RPC_URL"),
-      accounts: [configVariable("SEPOLIA_PRIVATE_KEY")],
+      url: envOrConfig("SEPOLIA_RPC_URL"),
+      accounts: [privateKeyFor("SEPOLIA_PRIVATE_KEY")],
+    },
+    cotiTestnet: {
+      type: "http",
+      chainType: "l1",
+      url: envOrConfig("COTI_TESTNET_RPC_URL"),
+      accounts: [privateKeyFor("COTI_TESTNET_PRIVATE_KEY")],
     },
     // Chain 1 for multichain message passing testing
     // Note: The actual chain ID is set in the contract constructor

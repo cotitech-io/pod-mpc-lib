@@ -5,7 +5,7 @@ import "./IInbox.sol";
 import "./mpccodec/MpcAbiCodec.sol";
 
 contract InboxBase is IInbox {
-    uint256 public immutable chainId;
+    uint256 public chainId; // We keep this mutable, only to have the same contract address on multiple chains
     
     // Mapping from requestId to Request
     mapping(bytes32 => Request) public requests;
@@ -25,10 +25,6 @@ contract InboxBase is IInbox {
     // Incoming requests (requests that need to be delivered to target contracts on this chain)
     mapping(bytes32 => Request) public incomingRequests;
 
-    /// @notice Hook for tracking newly created outgoing requests
-    /// @dev Override in Inbox to add requests to pending queues
-    /// @param requestId The request ID that was created
-    function _trackPendingRequest(bytes32 requestId) internal virtual {}
     
     event MessageSent(
         bytes32 indexed requestId,
@@ -57,7 +53,10 @@ contract InboxBase is IInbox {
         bytes errorMessage
     );
 
+    /// @notice Create an Inbox base with a fixed chain ID.
+    /// @param _chainId The chain ID for this inbox instance.
     constructor(uint256 _chainId) {
+        if (_chainId == 0) { chainId = block.chainid; }
         chainId = _chainId;
     }
 
@@ -80,6 +79,7 @@ contract InboxBase is IInbox {
         return _sendTwoWayMessage(targetChainId, targetContract, methodCall, callbackSelector, errorSelector);
     }
     
+    /// @dev Internal helper to create a two-way request.
     function _sendTwoWayMessage(
         uint256 targetChainId,
         address targetContract,
@@ -115,6 +115,7 @@ contract InboxBase is IInbox {
         return _sendOneWayMessage(targetChainId, targetContract, methodCall, errorSelector, bytes32(0));
     }
     
+    /// @dev Internal helper to create a one-way request.
     function _sendOneWayMessage(
         uint256 targetChainId,
         address targetContract,
@@ -262,6 +263,7 @@ contract InboxBase is IInbox {
     }
     
     // Internal helper functions
+    /// @dev Create, store, and emit a new request.
     function _createRequest(
         uint256 targetChainId,
         address targetContract,
@@ -296,7 +298,6 @@ contract InboxBase is IInbox {
         });
 
         requests[requestId] = request;
-        _trackPendingRequest(requestId);
 
         emit MessageSent(
             requestId,
@@ -310,6 +311,7 @@ contract InboxBase is IInbox {
         return requestId;
     }
 
+    /// @dev Pack chain ID and nonce into a bytes32 request ID.
     function _packRequestId(uint chainId_, uint nonce) internal pure returns (bytes32) {
         require(chainId_ <= type(uint128).max, "Inbox: chainId too large");
         require(nonce <= type(uint128).max, "Inbox: nonce too large");
@@ -320,6 +322,7 @@ contract InboxBase is IInbox {
     /// @dev If selector is zero, data is assumed to be full calldata (abi.encodeWithSelector)
     ///      and datatypes/datalens must be empty. Otherwise, if datatypes are provided,
     ///      arguments are re-encoded to map it-* types to gt-* before dispatch.
+    /// @dev Encode the method call into calldata, optionally re-encoding MPC types.
     function _encodeMethodCall(MpcMethodCall memory methodCall) internal returns (bytes memory) {
         if (methodCall.selector == bytes4(0)) {
             require(methodCall.datatypes.length == 0, "Inbox: raw call has datatypes");
@@ -336,6 +339,7 @@ contract InboxBase is IInbox {
 
         return MpcAbiCodec.reEncodeWithGt(codecCall);
     }
+    /// @dev Return the original sender for a request ID.
     function _getOriginalSender(bytes32 requestId) internal view returns (address) {
         return requests[requestId].originalSender;
     }

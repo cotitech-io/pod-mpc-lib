@@ -8,6 +8,7 @@ abstract contract InboxUser {
 
     error OnlyInbox(address invalidCaller);
 
+    /// @dev Restrict calls to the configured inbox.
     modifier onlyInbox() {
         if (msg.sender != address(inbox)) {
             revert OnlyInbox(msg.sender);
@@ -15,6 +16,8 @@ abstract contract InboxUser {
         _;
     }
 
+    /// @dev Set the inbox contract address.
+    /// @param _inbox The inbox address to use.
     function setInbox(address _inbox) internal {
         inbox = IInbox(_inbox);
     }

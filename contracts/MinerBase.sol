@@ -9,11 +9,14 @@ contract MinerBase is Ownable {
     event MinerAdded(address miner);
     event MinerRemoved(address miner);
 
+    /// @dev Restrict calls to registered miners.
     modifier onlyMiner() {
         require(_miners[msg.sender], "MinerBase: caller is not a miner");
         _;
     }
 
+    /// @notice Create the miner registry with an initial owner.
+    /// @param initialOwner The address to set as owner.
     constructor(address initialOwner) Ownable(initialOwner) {}
 
     /// @notice Adds a miner address

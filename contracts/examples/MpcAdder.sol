@@ -10,10 +10,15 @@ contract MpcAdder is MpcLib {
 
     ctUint64 private _result;
 
+    /// @notice Create an MPC adder bound to an inbox.
+    /// @param _inbox The inbox contract address.
     constructor(address _inbox) {
         setInbox(_inbox);
     }
 
+    /// @notice Send an MPC add request using encrypted inputs.
+    /// @param a Encrypted input a (itUint64).
+    /// @param b Encrypted input b (itUint64).
     function add(itUint64 calldata a, itUint64 calldata b) external {
         bytes32 requestId = MpcLib.add(
             a,
@@ -25,10 +30,13 @@ contract MpcAdder is MpcLib {
         emit AddRequest(requestId);
     }
 
+    /// @notice Receive the response and store the ciphertext result.
+    /// @param data The response payload containing the ciphertext.
     function receiveC(bytes memory data) external onlyInbox {
         _result = abi.decode(data, (ctUint64));
     }
 
+    /// @notice Return the last received ciphertext result.
     function resultCiphertext() external view returns (ctUint64) {
         return _result;
     }

@@ -7,6 +7,12 @@ import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 contract MpcAbiCodecHarness {
     using MpcAbiCodec for MpcAbiCodec.MpcMethodCallContext;
 
+    /// @notice Build and re-encode a static call to test MPC ABI logic.
+    /// @param selector The method selector to use.
+    /// @param a The uint256 argument.
+    /// @param b The address argument.
+    /// @param c The bytes32 argument.
+    /// @return calldataBytes The encoded calldata after re-encoding.
     function buildAndReencodeStatic(
         bytes4 selector,
         uint256 a,
@@ -21,6 +27,14 @@ contract MpcAbiCodecHarness {
         return MpcAbiCodec.reEncodeWithGt(ctx.build());
     }
 
+    /// @notice Build and re-encode a dynamic call to test MPC ABI logic.
+    /// @param selector The method selector to use.
+    /// @param s The string argument.
+    /// @param data The bytes argument.
+    /// @param nums The uint256[] argument.
+    /// @param addrs The address[] argument.
+    /// @param b32s The bytes32[] argument.
+    /// @return calldataBytes The encoded calldata after re-encoding.
     function buildAndReencodeDynamic(
         bytes4 selector,
         string calldata s,
@@ -39,6 +53,14 @@ contract MpcAbiCodecHarness {
         return MpcAbiCodec.reEncodeWithGt(ctx.build());
     }
 
+    /// @notice Build and re-encode a mixed call to test MPC ABI logic.
+    /// @param selector The method selector to use.
+    /// @param a The uint256 argument.
+    /// @param b The itUint64 argument.
+    /// @param s The string argument.
+    /// @param c The bytes32 argument.
+    /// @param data The bytes argument.
+    /// @return calldataBytes The encoded calldata after re-encoding.
     function buildAndReencodeMixed(
         bytes4 selector,
         uint256 a,
@@ -57,6 +79,12 @@ contract MpcAbiCodecHarness {
         return MpcAbiCodec.reEncodeWithGt(ctx.build());
     }
 
+    /// @notice Build and re-encode calls with it-* types to test MPC ABI logic.
+    /// @param selector The method selector to use.
+    /// @param values Raw ciphertext components.
+    /// @param stringCts Ciphertext words for the string.
+    /// @param stringSigs Signatures for the string ciphertext.
+    /// @return calldataBytes The encoded calldata after re-encoding.
     function buildAndReencodeItTypes(
         bytes4 selector,
         uint256[] calldata values,
@@ -111,6 +139,7 @@ contract MpcAbiCodecHarness {
         return MpcAbiCodec.reEncodeWithGt(ctx.build());
     }
 
+    /// @dev Build an itString from ciphertext parts and signatures.
     function _buildItString(uint256[] calldata stringCts, bytes[] calldata stringSigs)
         internal
         pure

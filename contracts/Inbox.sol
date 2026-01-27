@@ -5,5 +5,7 @@ import "./InboxMiner.sol";
 import "./MinerBase.sol";
 
 contract Inbox is InboxMiner, MinerBase {
+    /// @notice Create an Inbox with the given chain ID.
+    /// @param _chainId The chain ID this inbox serves.
     constructor(uint256 _chainId) InboxMiner(_chainId) MinerBase(msg.sender) {}
 }

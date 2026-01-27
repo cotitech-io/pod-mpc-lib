@@ -37,6 +37,10 @@ library MpcAbiCodec {
         uint argIndex;
     }
     
+    /// @notice Create a method call context with selector and argument count.
+    /// @param selector The method selector to call on the target contract.
+    /// @param argCount The number of arguments expected in the call.
+    /// @return context The initialized method call context.
     function create(bytes4 selector, uint argCount) internal pure returns (MpcMethodCallContext memory) {
         return MpcMethodCallContext({
             methodCall: IInbox.MpcMethodCall({
@@ -62,86 +66,154 @@ library MpcAbiCodec {
         return _appendArgument(methodCall, abi.encode(arg), MpcDataType.UINT256);
     }
 
+    /// @notice Add an address argument to the method call context.
+    /// @param methodCall The method call context.
+    /// @param arg The address argument to add.
+    /// @return The updated method call context.
     function addArgument(MpcMethodCallContext memory methodCall, address arg)
     internal pure returns (MpcMethodCallContext memory) {
         return _appendArgument(methodCall, abi.encode(arg), MpcDataType.ADDRESS);
     }
 
+    /// @notice Add an itUint64 argument to the method call context.
+    /// @param methodCall The method call context.
+    /// @param arg The itUint64 argument to add.
+    /// @return The updated method call context.
     function addArgument(MpcMethodCallContext memory methodCall, itUint64 memory arg)
     internal pure returns (MpcMethodCallContext memory) {
         return _appendArgument(methodCall, abi.encode(arg), MpcDataType.IT_UINT64);
     }
 
+    /// @notice Add an itBool argument to the method call context.
+    /// @param methodCall The method call context.
+    /// @param arg The itBool argument to add.
+    /// @return The updated method call context.
     function addArgument(MpcMethodCallContext memory methodCall, itBool memory arg)
     internal pure returns (MpcMethodCallContext memory) {
         return _appendArgument(methodCall, abi.encode(arg), MpcDataType.IT_BOOL);
     }
 
+    /// @notice Add an itUint8 argument to the method call context.
+    /// @param methodCall The method call context.
+    /// @param arg The itUint8 argument to add.
+    /// @return The updated method call context.
     function addArgument(MpcMethodCallContext memory methodCall, itUint8 memory arg)
     internal pure returns (MpcMethodCallContext memory) {
         return _appendArgument(methodCall, abi.encode(arg), MpcDataType.IT_UINT8);
     }
 
+    /// @notice Add an itUint16 argument to the method call context.
+    /// @param methodCall The method call context.
+    /// @param arg The itUint16 argument to add.
+    /// @return The updated method call context.
     function addArgument(MpcMethodCallContext memory methodCall, itUint16 memory arg)
     internal pure returns (MpcMethodCallContext memory) {
         return _appendArgument(methodCall, abi.encode(arg), MpcDataType.IT_UINT16);
     }
 
+    /// @notice Add an itUint32 argument to the method call context.
+    /// @param methodCall The method call context.
+    /// @param arg The itUint32 argument to add.
+    /// @return The updated method call context.
     function addArgument(MpcMethodCallContext memory methodCall, itUint32 memory arg)
     internal pure returns (MpcMethodCallContext memory) {
         return _appendArgument(methodCall, abi.encode(arg), MpcDataType.IT_UINT32);
     }
 
+    /// @notice Add an itUint128 argument to the method call context.
+    /// @param methodCall The method call context.
+    /// @param arg The itUint128 argument to add.
+    /// @return The updated method call context.
     function addArgument(MpcMethodCallContext memory methodCall, itUint128 memory arg)
     internal pure returns (MpcMethodCallContext memory) {
         return _appendArgument(methodCall, abi.encode(arg), MpcDataType.IT_UINT128);
     }
 
+    /// @notice Add an itUint256 argument to the method call context.
+    /// @param methodCall The method call context.
+    /// @param arg The itUint256 argument to add.
+    /// @return The updated method call context.
     function addArgument(MpcMethodCallContext memory methodCall, itUint256 memory arg)
     internal pure returns (MpcMethodCallContext memory) {
         return _appendArgument(methodCall, abi.encode(arg), MpcDataType.IT_UINT256);
     }
 
+    /// @notice Add an itString argument to the method call context.
+    /// @param methodCall The method call context.
+    /// @param arg The itString argument to add.
+    /// @return The updated method call context.
     function addArgument(MpcMethodCallContext memory methodCall, itString memory arg)
     internal pure returns (MpcMethodCallContext memory) {
         return _appendArgument(methodCall, abi.encode(arg), MpcDataType.IT_STRING);
     }
 
+    /// @notice Add a bytes32 argument to the method call context.
+    /// @param methodCall The method call context.
+    /// @param arg The bytes32 argument to add.
+    /// @return The updated method call context.
     function addArgument(MpcMethodCallContext memory methodCall, bytes32 arg)
     internal pure returns (MpcMethodCallContext memory) {
         return _appendArgument(methodCall, abi.encode(arg), MpcDataType.BYTES32);
     }
 
+    /// @notice Add a string argument to the method call context.
+    /// @param methodCall The method call context.
+    /// @param arg The string argument to add.
+    /// @return The updated method call context.
     function addArgument(MpcMethodCallContext memory methodCall, string memory arg)
     internal pure returns (MpcMethodCallContext memory) {
         return _appendArgument(methodCall, abi.encode(arg), MpcDataType.STRING);
     }
 
+    /// @notice Add a bytes argument to the method call context.
+    /// @param methodCall The method call context.
+    /// @param arg The bytes argument to add.
+    /// @return The updated method call context.
     function addArgument(MpcMethodCallContext memory methodCall, bytes memory arg)
     internal pure returns (MpcMethodCallContext memory) {
         return _appendArgument(methodCall, abi.encode(arg), MpcDataType.BYTES);
     }
 
+    /// @notice Add a uint256 array argument to the method call context.
+    /// @param methodCall The method call context.
+    /// @param arg The uint256[] argument to add.
+    /// @return The updated method call context.
     function addArgument(MpcMethodCallContext memory methodCall, uint256[] memory arg)
     internal pure returns (MpcMethodCallContext memory) {
         return _appendArgument(methodCall, abi.encode(arg), MpcDataType.UINT256_ARRAY);
     }
 
+    /// @notice Add an address array argument to the method call context.
+    /// @param methodCall The method call context.
+    /// @param arg The address[] argument to add.
+    /// @return The updated method call context.
     function addArgument(MpcMethodCallContext memory methodCall, address[] memory arg)
     internal pure returns (MpcMethodCallContext memory) {
         return _appendArgument(methodCall, abi.encode(arg), MpcDataType.ADDRESS_ARRAY);
     }
 
+    /// @notice Add a bytes32 array argument to the method call context.
+    /// @param methodCall The method call context.
+    /// @param arg The bytes32[] argument to add.
+    /// @return The updated method call context.
     function addArgument(MpcMethodCallContext memory methodCall, bytes32[] memory arg)
     internal pure returns (MpcMethodCallContext memory) {
         return _appendArgument(methodCall, abi.encode(arg), MpcDataType.BYTES32_ARRAY);
     }
 
+    /// @notice Add a string array argument to the method call context.
+    /// @param methodCall The method call context.
+    /// @param arg The string[] argument to add.
+    /// @return The updated method call context.
     function addArgument(MpcMethodCallContext memory methodCall, string[] memory arg)
     internal pure returns (MpcMethodCallContext memory) {
         return _appendArgument(methodCall, abi.encode(arg), MpcDataType.STRING_ARRAY);
     }
 
+    /// @notice Add a bytes array argument to the method call context.
+    /// @param methodCall The method call context.
+    /// @param arg The bytes[] argument to add.
+    /// @return The updated method call context.
     function addArgument(MpcMethodCallContext memory methodCall, bytes[] memory arg)
     internal pure returns (MpcMethodCallContext memory) {
         return _appendArgument(methodCall, abi.encode(arg), MpcDataType.BYTES_ARRAY);
@@ -168,6 +240,9 @@ library MpcAbiCodec {
         return methodCall.methodCall;
     }
 
+    /// @notice Re-encode a method call, validating it-* types to gt-* and rebuilding calldata.
+    /// @param data The method call to re-encode.
+    /// @return calldataBytes The ABI-encoded calldata with selector prepended.
     function reEncodeWithGt(IInbox.MpcMethodCall memory data) internal returns (bytes memory) {
         uint argCount = data.datatypes.length;
         require(data.datalens.length == argCount, "MpcAbiCodec: invalid datalens");
@@ -231,6 +306,7 @@ library MpcAbiCodec {
         return recoded;
     }
 
+    /// @dev Append an encoded argument and update type metadata and data size.
     function _appendArgument(
         MpcMethodCallContext memory methodCall,
         bytes memory encodedArg,
@@ -245,18 +321,21 @@ library MpcAbiCodec {
         return methodCall;
     }
 
+    /// @dev Read a 32-byte word from a bytes array at the given offset.
     function _readUint256(bytes memory data, uint offset) internal pure returns (uint256 value) {
         assembly {
             value := mload(add(add(data, 32), offset))
         }
     }
 
+    /// @dev Write a 32-byte word into a bytes array at the given offset.
     function _writeWord(bytes memory data, uint offset, uint256 value) internal pure {
         assembly {
             mstore(add(add(data, 32), offset), value)
         }
     }
 
+    /// @dev Copy a slice of bytes into a new array.
     function _slice(bytes memory data, uint offset, uint length) internal pure returns (bytes memory result) {
         result = new bytes(length);
         for (uint i = 0; i < length; i++) {
@@ -264,10 +343,12 @@ library MpcAbiCodec {
         }
     }
 
+    /// @dev Decode an on-chain data type identifier into the enum.
     function _decodeType(bytes8 dataType) internal pure returns (MpcDataType) {
         return MpcDataType(uint8(uint64(dataType)));
     }
 
+    /// @dev Normalize an argument to ABI encoding and validate MPC ciphertexts.
     function _normalizeArg(bytes memory argData, MpcDataType dataType)
     internal returns (bytes memory encodedArg, bool dynamicType, uint staticWordCount) {
         if (dataType == MpcDataType.UINT256) {
@@ -347,6 +428,7 @@ library MpcAbiCodec {
         revert("MpcAbiCodec: unknown type");
     }
 
+    /// @dev Copy bytes from source to destination with word-aligned optimization.
     function _copyBytes(
         bytes memory dest,
         uint destOffset,

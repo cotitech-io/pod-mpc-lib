@@ -20,6 +20,10 @@ interface IInboxMiner {
         bytes errorMessage;
     }
 
+    /// @notice Process mined requests and errors for a source chain.
+    /// @param sourceChainId The source chain ID that produced the mined data.
+    /// @param mined The mined requests to process.
+    /// @param minedErrors The mined errors to process.
     function batchProcessRequests(
         uint sourceChainId, MinedRequest[] memory mined, MinedError[] memory minedErrors
     ) external;

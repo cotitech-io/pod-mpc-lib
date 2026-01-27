@@ -9,10 +9,16 @@ contract Adder is MpcLib {
 
     uint public result;
 
+    /// @notice Create an example adder bound to an inbox.
+    /// @param _inbox The inbox contract address.
     constructor(address _inbox) {
         setInbox(_inbox);
     }
 
+    /// @notice Send a two-way add request to the MPC executor.
+    /// @param a First operand (plaintext).
+    /// @param b Second operand (plaintext).
+    /// @param cOwner Owner of the result ciphertext.
     function add(uint a, uint b, address cOwner) external {
         // Need to create a custom request as the MpcLib only implements mpc calls
         IInbox.MpcMethodCall memory methodCall =
@@ -31,6 +37,8 @@ contract Adder is MpcLib {
         emit AddRequest(requestId, a, b);
     }
 
+    /// @notice Receive the response and store the decoded result.
+    /// @param data The response payload containing the result.
     function receiveC(bytes memory data) external onlyInbox {
         (uint c) = abi.decode(data, (uint));
         result = c;

@@ -50,8 +50,28 @@ const encryptUint64 = async (ctx: TestContext, value: bigint) => {
   };
 };
 
+const encryptUint128 = async (ctx: TestContext, value: bigint) => {
+  const hexString = value.toString(16).padStart(32, "0");
+  const high = await encryptUint64(ctx, BigInt(`0x${hexString.slice(0, 16)}`));
+  const low = await encryptUint64(ctx, BigInt(`0x${hexString.slice(16, 32)}`));
+  return {
+    ciphertext: { high: high.ciphertext, low: low.ciphertext },
+    signature: [high.signature, low.signature],
+  };
+};
+
 const buildEncryptedInput64 = async (ctx: TestContext, value: bigint) => {
   return encryptUint64(ctx, value);
+};
+
+const buildEncryptedInput256 = async (ctx: TestContext, value: bigint) => {
+  const hexString = value.toString(16).padStart(64, "0");
+  const high = await encryptUint128(ctx, BigInt(`0x${hexString.slice(0, 32)}`));
+  const low = await encryptUint128(ctx, BigInt(`0x${hexString.slice(32, 64)}`));
+  return {
+    ciphertext: { high: high.ciphertext, low: low.ciphertext },
+    signature: [high.signature, low.signature],
+  };
 };
 
 const decryptCtUint64 = async (ciphertext: any, wallet: Wallet) => {
@@ -144,10 +164,11 @@ describe("PErc20 (system)", async function () {
     const totalSupply = 1_000_000n;
 
     logStep("Test: encrypt transfer inputs");
+    const itTo = await buildEncryptedInput256(ctx, BigInt(secondaryUser.address));
     const itAmount = await buildEncryptedInput64(ctx, amount);
 
     logStep("Test: sending transfer()");
-    const txHash = await pErc20AsCoti.write.transfer([secondaryUser.address, itAmount]);
+    const txHash = await pErc20AsCoti.write.transfer([itTo, itAmount]);
     logStep(`Test: waiting for tx ${txHash}`);
     await ctx.sepolia.publicClient.waitForTransactionReceipt({ hash: txHash, ...receiptWaitOptions });
 

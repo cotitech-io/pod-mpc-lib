@@ -17,12 +17,13 @@ contract PErc20Coti is InboxUser {
 
     mapping(bytes32 => ctUint64) public balanceOf;
 
-    function transferFrom(address from, address to, gtUint64 amount
+    function transferFrom(address from, gtUint256 calldata to, gtUint64 amount
     ) external onlyInbox {
         // Get the balance of for from and to
         // reduce or revert
         bytes32 fromHash = keccak256(abi.encode(from));
-        bytes32 toHash = keccak256(abi.encode(to));
+        address toAddr = address(uint160(uint256(MpcCore.decrypt(to))));
+        bytes32 toHash = keccak256(abi.encode(toAddr));
 
         ctUint64 fromCipher = balanceOf[fromHash];
         if (ctUint64.unwrap(fromCipher) == 0) {
@@ -43,7 +44,7 @@ contract PErc20Coti is InboxUser {
         balanceOf[toHash] = MpcCore.offBoard(newToBalance);
 
         ctUint64 fromBalanceResponse = MpcCore.offBoardToUser(newFromBalance, from);
-        ctUint64 toBalanceResponse = MpcCore.offBoardToUser(newToBalance, to);
+        ctUint64 toBalanceResponse = MpcCore.offBoardToUser(newToBalance, toAddr);
 
         inbox.respond(abi.encode(fromHash, fromBalanceResponse, toHash, toBalanceResponse));
     }

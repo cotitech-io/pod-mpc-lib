@@ -7,7 +7,7 @@ import "../../IInbox.sol";
 import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 
 interface IPErc20Coti {
-    function transferFrom(address from, address to, gtUint64 amount) external;
+    function transferFrom(address from, gtUint256 calldata to, gtUint64 amount) external;
 }
 
 contract PErc20 is MpcLib {
@@ -21,7 +21,7 @@ contract PErc20 is MpcLib {
 
     mapping(bytes32 => ctUint64) public balanceOf;
 
-    function transfer(address to, itUint64 calldata amount) external {
+    function transfer(itUint256 calldata to, itUint64 calldata amount) external {
         IInbox.MpcMethodCall memory methodCall =
             MpcAbiCodec.create(IPErc20Coti.transferFrom.selector, 3)
             .addArgument(msg.sender) // For gt data type, we use it equivalent, which is user encrypted

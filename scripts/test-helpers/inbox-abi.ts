@@ -1,0 +1,140 @@
+export const INBOX_ABI = [
+  {
+    type: "event",
+    name: "MessageSent",
+    inputs: [
+      { name: "messageHash", type: "bytes32", indexed: true },
+      { name: "chainId", type: "uint256", indexed: true },
+      { name: "reqId", type: "uint256", indexed: true },
+      { name: "sender", type: "address", indexed: false },
+      { name: "timestamp", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "function",
+    name: "receiveMessage",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "sourceChainId", type: "uint256" },
+      { name: "reqId", type: "uint256" },
+      { name: "sender", type: "address" },
+      { name: "timestamp", type: "uint256" },
+      { name: "messageHash", type: "bytes32" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    type: "function",
+    name: "getMessage",
+    stateMutability: "view",
+    inputs: [{ name: "messageHash", type: "bytes32" }],
+    outputs: [
+      {
+        name: "",
+        type: "tuple",
+        components: [
+          { name: "chainId", type: "uint256" },
+          { name: "reqId", type: "uint256" },
+          { name: "sender", type: "address" },
+          { name: "timestamp", type: "uint256" },
+          { name: "processed", type: "bool" },
+        ],
+      },
+    ],
+  },
+  {
+    type: "function",
+    name: "getRequests",
+    stateMutability: "view",
+    inputs: [
+      { name: "from", type: "uint256" },
+      { name: "len", type: "uint256" },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "tuple[]",
+        components: [
+          { name: "requestId", type: "bytes32" },
+          { name: "targetChainId", type: "uint256" },
+          { name: "targetContract", type: "address" },
+          { name: "data", type: "bytes" },
+          { name: "callerContract", type: "address" },
+          { name: "originalSender", type: "address" },
+          { name: "timestamp", type: "uint64" },
+          { name: "callbackSelector", type: "bytes4" },
+          { name: "errorSelector", type: "bytes4" },
+          { name: "isTwoWay", type: "bool" },
+          { name: "executed", type: "bool" },
+          { name: "sourceRequestId", type: "bytes32" },
+        ],
+      },
+    ],
+  },
+  {
+    type: "function",
+    name: "getRequestsLen",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "incomingRequests",
+    stateMutability: "view",
+    inputs: [{ name: "requestId", type: "bytes32" }],
+    outputs: [
+      {
+        name: "",
+        type: "tuple",
+        components: [
+          { name: "requestId", type: "bytes32" },
+          { name: "targetChainId", type: "uint256" },
+          { name: "targetContract", type: "address" },
+          { name: "data", type: "bytes" },
+          { name: "callerContract", type: "address" },
+          { name: "originalSender", type: "address" },
+          { name: "timestamp", type: "uint64" },
+          { name: "callbackSelector", type: "bytes4" },
+          { name: "errorSelector", type: "bytes4" },
+          { name: "isTwoWay", type: "bool" },
+          { name: "executed", type: "bool" },
+          { name: "sourceRequestId", type: "bytes32" },
+        ],
+      },
+    ],
+  },
+  {
+    type: "function",
+    name: "batchProcessRequests",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "sourceChainId", type: "uint256" },
+      {
+        name: "mined",
+        type: "tuple[]",
+        components: [
+          { name: "requestId", type: "bytes32" },
+          { name: "sourceContract", type: "address" },
+          { name: "targetContract", type: "address" },
+          { name: "data", type: "bytes" },
+          { name: "callbackSelector", type: "bytes4" },
+          { name: "errorSelector", type: "bytes4" },
+          { name: "isTwoWay", type: "bool" },
+          { name: "sourceRequestId", type: "bytes32" },
+        ],
+      },
+      {
+        name: "minedErrors",
+        type: "tuple[]",
+        components: [
+          { name: "requestId", type: "bytes32" },
+          { name: "errorCode", type: "uint64" },
+          { name: "errorMessage", type: "bytes" },
+        ],
+      },
+    ],
+    outputs: [],
+  },
+] as const;
+

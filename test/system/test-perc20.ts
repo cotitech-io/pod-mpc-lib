@@ -20,7 +20,7 @@ import {
 } from "./mpc-test-utils.js";
 
 const BATCH_PROCESS_SELECTOR = toFunctionSelector(
-  "batchProcessRequests(uint256,(bytes32,address,address,(bytes4,bytes,bytes8[],bytes32[]),bytes4,bytes4,bool,bytes32)[],(bytes32,uint64,bytes)[])"
+  "batchProcessRequests(uint256,(bytes32,address,address,(bytes4,bytes,bytes8[],bytes32[]),bytes4,bytes4,bool,bytes32)[])"
 );
 
 const normalizePrivateKey = (key: string) => (key.startsWith("0x") ? key : `0x${key}`);

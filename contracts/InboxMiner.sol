@@ -60,18 +60,25 @@ contract InboxMiner is InboxBase, MinerBase, IInboxMiner {
     ///      Response data is stored from the executed request's encoded calldata.
     /// @param sourceChainId The chain ID that the requests/errors came from
     /// @param mined Array of mined requests (responses) to process
-    /// @param minedErrors Array of mined errors to process
     function batchProcessRequests(
         uint sourceChainId,
-        MinedRequest[] memory mined,
-        MinedError[] memory minedErrors
+        MinedRequest[] memory mined
     ) external onlyMiner {
         require(sourceChainId != chainId, "Inbox: sourceChainId cannot be this chain");
+
+        uint256 allowedNonce = 0;
+        if (lastIncomingRequestId[sourceChainId] != bytes32(0)) {
+            (, allowedNonce) = _unpackRequestId(lastIncomingRequestId[sourceChainId]);
+            allowedNonce++;
+        }
 
         // Process incoming requests (including response requests)
         for (uint i = 0; i < mined.length; i++) {
             MinedRequest memory minedRequest = mined[i];
             bytes32 requestId = minedRequest.requestId;
+            (, uint256 minedNonce) = _unpackRequestId(requestId);
+            require(minedNonce == allowedNonce, "Inbox: mined nonces must be contiguous");
+            allowedNonce = minedNonce + 1;
             Request storage incomingRequest = incomingRequests[requestId];
 
             if (incomingRequest.requestId == bytes32(0)) {
@@ -125,57 +132,10 @@ contract InboxMiner is InboxBase, MinerBase, IInboxMiner {
             }
         }
 
-        // Process errors for outgoing requests (both two-way and one-way)
-        for (uint i = 0; i < minedErrors.length; i++) {
-            bytes32 requestId = minedErrors[i].requestId;
-            Request storage request = requests[requestId];
-
-            // Verify the request is for the correct target chain
-            // Mark as executed when error is processed
-            if (request.requestId != bytes32(0) &&
-                request.targetChainId == sourceChainId &&
-                !request.executed) {
-                request.executed = true;
-
-                Error memory err = Error({
-                    requestId: requestId,
-                    errorCode: minedErrors[i].errorCode,
-                    errorMessage: minedErrors[i].errorMessage
-                });
-
-                errors[requestId] = err;
-
-                emit ErrorReceived(requestId, minedErrors[i].errorCode, minedErrors[i].errorMessage);
-
-                // Call the error handler on the original sender (for both two-way and one-way)
-                // Wrap in ExecutionContext so consuming contract can use inboxMsgSender()
-                if (request.errorSelector != bytes4(0)) {
-                    address originalSender = request.originalSender;
-                    if (originalSender != address(0)) {
-                        // Set up execution context
-                        ExecutionContext memory prevContext = _currentContext;
-
-                        _currentContext = ExecutionContext({
-                            remoteChainId: sourceChainId,
-                            remoteContract: request.targetContract,
-                            requestId: requestId
-                        });
-
-                        // Execute error handler
-                        (bool success, ) = originalSender.call(
-                            abi.encodeWithSelector(request.errorSelector, requestId)
-                        );
-
-                        // Restore execution context
-                        _currentContext = prevContext;
-
-                        if (!success) {
-                            // Error handler failed, but we've already stored the error
-                        }
-                    }
-                }
-            }
+        if (mined.length > 0) {
+            lastIncomingRequestId[sourceChainId] = mined[mined.length - 1].requestId;
         }
+
     }
 
 }

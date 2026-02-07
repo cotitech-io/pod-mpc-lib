@@ -25,6 +25,9 @@ contract InboxBase is IInbox {
     // Incoming requests (requests that need to be delivered to target contracts on this chain)
     mapping(bytes32 => Request) public incomingRequests;
 
+    // Last incoming request nonce for each chain
+    mapping(uint256 => bytes32) public lastIncomingRequestId;
+
     
     event MessageSent(
         bytes32 indexed requestId,
@@ -220,10 +223,19 @@ contract InboxBase is IInbox {
     /// @return chainId_ The chain ID (uint128)
     /// @return nonce The request nonce number (uint128)
     function unpackRequestId(bytes32 requestId) external pure returns (uint chainId_, uint nonce) {
+        return _unpackRequestId(requestId);
+    }
+
+    /// @notice Unpacks a request ID into chain ID and nonce (128-bit each)
+    /// @param requestId The packed request ID
+    /// @return chainId_ The chain ID (uint128)
+    /// @return nonce The request nonce number (uint128)
+    function _unpackRequestId(bytes32 requestId) internal pure returns (uint chainId_, uint nonce) {
         uint256 packed = uint256(requestId);
         chainId_ = uint256(uint128(packed >> 128));
         nonce = uint256(uint128(packed));
     }
+
 
     /// @notice Gets a range of outgoing requests by index
     /// @param from The starting index (0-based)

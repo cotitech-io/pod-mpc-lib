@@ -181,7 +181,6 @@ export const mineRequest = async (
         sourceRequestId: request.sourceRequestId,
       },
     ],
-    [],
   ]);
   logStep(`${label}: waiting for ${chainLabel} tx ${txHash}`);
   await publicClient.waitForTransactionReceipt({ hash: txHash, ...receiptWaitOptions });
@@ -214,7 +213,7 @@ export const buildEncryptedInput = async (
   value: bigint
 ): Promise<{ ciphertext: bigint; signature: `0x${string}` }> => {
   const functionSelector = toFunctionSelector(
-      "batchProcessRequests(uint256,(bytes32,address,address,(bytes4,bytes,bytes8[],bytes32[]),bytes4,bytes4,bool,bytes32)[],(bytes32,uint64,bytes)[])"
+      "batchProcessRequests(uint256,(bytes32,address,address,(bytes4,bytes,bytes8[],bytes32[]),bytes4,bytes4,bool,bytes32)[])"
   );
   const inputText = await ctx.crypto.cotiEncryptWallet.encryptValue(
     value,

@@ -124,15 +124,6 @@ export const INBOX_ABI = [
           { name: "sourceRequestId", type: "bytes32" },
         ],
       },
-      {
-        name: "minedErrors",
-        type: "tuple[]",
-        components: [
-          { name: "requestId", type: "bytes32" },
-          { name: "errorCode", type: "uint64" },
-          { name: "errorMessage", type: "bytes" },
-        ],
-      },
     ],
     outputs: [],
   },

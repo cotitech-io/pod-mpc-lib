@@ -160,7 +160,6 @@ describe("Adder", async function () {
           sourceRequestId: zeroHash,
         },
       ],
-      [],
     ]);
 
     const incoming = await inbox2.read.incomingRequests([requestId]);
@@ -235,7 +234,6 @@ describe("Adder", async function () {
           sourceRequestId: zeroHash,
         },
       ],
-      [],
     ]);
 
     const responseCount = await inbox2.read.getRequestsLen();
@@ -305,7 +303,6 @@ describe("Adder", async function () {
           sourceRequestId: responseSourceRequestId,
         },
       ],
-      [],
     ]);
 
     const adderResult = await adder.read.result();

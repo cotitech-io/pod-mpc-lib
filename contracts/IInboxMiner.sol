@@ -14,17 +14,10 @@ interface IInboxMiner {
         bytes32 sourceRequestId;
     }
 
-    struct MinedError {
-        bytes32 requestId;
-        uint64 errorCode;
-        bytes errorMessage;
-    }
-
     /// @notice Process mined requests and errors for a source chain.
     /// @param sourceChainId The source chain ID that produced the mined data.
     /// @param mined The mined requests to process.
-    /// @param minedErrors The mined errors to process.
     function batchProcessRequests(
-        uint sourceChainId, MinedRequest[] memory mined, MinedError[] memory minedErrors
+        uint sourceChainId, MinedRequest[] memory mined
     ) external;
 }

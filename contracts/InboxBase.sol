@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.26;
 
 import "./IInbox.sol";
 import "./mpccodec/MpcAbiCodec.sol";
@@ -56,8 +56,7 @@ contract InboxBase is IInbox {
     /// @notice Create an Inbox base with a fixed chain ID.
     /// @param _chainId The chain ID for this inbox instance.
     constructor(uint256 _chainId) {
-        if (_chainId == 0) { chainId = block.chainid; }
-        chainId = _chainId;
+        chainId = _chainId == 0 ? block.chainid : _chainId;
     }
 
     /// @notice Sends a two-way message to a target chain with callback and error handlers

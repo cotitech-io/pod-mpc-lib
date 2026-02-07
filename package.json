@@ -5,6 +5,10 @@
   "scripts": {
     "node:chain1": "HARDHAT_CHAIN_ID=31337 hardhat node --port 8545",
     "node:chain2": "HARDHAT_CHAIN_ID=31338 hardhat node --port 8546",
+    "deploy:inbox": "hardhat run scripts/deploy-inbox.ts",
+    "deploy:inbox:coti": "hardhat run scripts/deploy-inbox-with-executor.ts",
+    "deploy:examples:source": "hardhat run scripts/deploy-examples-source.ts",
+    "deploy:examples:coti": "hardhat run scripts/deploy-examples-coti.ts",
     "test": "hardhat test",
     "test:inbox": "hardhat test test/Inbox.ts",
     "relay": "tsx scripts/relay-node.ts"
@@ -19,6 +23,7 @@
     "ethers": "^6.15.0",
     "forge-std": "github:foundry-rs/forge-std#v1.9.4",
     "hardhat": "^3.1.3",
+    "solc": "^0.8.26",
     "tsx": "^4.19.2",
     "typescript": "~5.8.0",
     "viem": "^2.44.1"

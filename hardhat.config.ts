@@ -1,4 +1,6 @@
 import "dotenv/config";
+import path from "node:path";
+import "@nomicfoundation/hardhat-verify";
 import hardhatToolboxViemPlugin from "@nomicfoundation/hardhat-toolbox-viem";
 import { configVariable, defineConfig } from "hardhat/config";
 
@@ -8,27 +10,34 @@ const privateKeyFor = (key: string) =>
 
 export default defineConfig({
   plugins: [hardhatToolboxViemPlugin],
-  solidity: {
-    profiles: {
-      default: {
-        version: "0.8.28",
-        settings: {
-          evmVersion: "paris",
-          optimizer: {
-            enabled: true,
-            runs: 200,
-          },
+  verify: {
+    etherscan: {
+      apiKey: envOrConfig("ETHERSCAN_API_KEY"),
+      enabled: true,
+    },
+  },
+  chainDescriptors: {
+    7082400: {
+      name: "COTI Testnet",
+      chainType: "generic",
+      blockExplorers: {
+        blockscout: {
+          name: "COTI Testnet Blockscout",
+          url: "https://testnet.cotiscan.io",
+          apiUrl: "https://testnet.cotiscan.io/api",
         },
       },
-      production: {
-        version: "0.8.28",
-        settings: {
-          evmVersion: "paris",
-          optimizer: {
-            enabled: true,
-            runs: 200,
-          },
-        },
+    },
+  },
+  solidity: {
+    version: "0.8.26",
+    path: path.resolve("node_modules/solc/soljson.js"),
+    preferWasm: false,
+    settings: {
+      evmVersion: "paris",
+      optimizer: {
+        enabled: true,
+        runs: 200,
       },
     },
   },
@@ -64,8 +73,9 @@ export default defineConfig({
     cotiTestnet: {
       type: "http",
       chainType: "l1",
+      chainId: 7082400,
       url: envOrConfig("COTI_TESTNET_RPC_URL"),
-      accounts: [privateKeyFor("COTI_TESTNET_PRIVATE_KEY")],
+      accounts: [privateKeyFor("PRIVATE_KEY")],
     },
     // Chain 1 for multichain message passing testing
     // Note: The actual chain ID is set in the contract constructor

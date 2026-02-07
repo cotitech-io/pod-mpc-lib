@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.26;
 
 contract MockExtendedOperations {
     event ValidateCiphertextCalled(bytes1 metaData, uint256 ciphertext, bytes signature);

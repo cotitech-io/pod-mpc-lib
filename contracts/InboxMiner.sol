@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.26;
 
 import "./IInboxMiner.sol";
 import "./InboxBase.sol";
+import "./MinerBase.sol";
 
-contract InboxMiner is InboxBase, IInboxMiner {
+contract InboxMiner is InboxBase, MinerBase, IInboxMiner {
     /// @notice Create an Inbox miner with the given chain ID.
     /// @param _chainId The chain ID this inbox serves.
-    constructor(uint256 _chainId) InboxBase(_chainId) {}
+    constructor(uint256 _chainId) InboxBase(_chainId) MinerBase(msg.sender) {}
 
     /// @notice Executes a mined incoming request on the target chain
     /// @dev Builds calldata from the request (raw calldata or MPC re-encode), sets execution context,
@@ -64,7 +65,7 @@ contract InboxMiner is InboxBase, IInboxMiner {
         uint sourceChainId,
         MinedRequest[] memory mined,
         MinedError[] memory minedErrors
-    ) external {
+    ) external onlyMiner {
         require(sourceChainId != chainId, "Inbox: sourceChainId cannot be this chain");
 
         // Process incoming requests (including response requests)

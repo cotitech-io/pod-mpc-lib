@@ -78,23 +78,19 @@ export default defineConfig({
       accounts: [privateKeyFor("PRIVATE_KEY")],
     },
     // Chain 1 for multichain message passing testing
-    // Note: The actual chain ID is set in the contract constructor
-    // This network config just needs to match what the node reports
+    // Use in-process simulation to avoid external nodes in tests
     chain1: {
-      type: "http",
-      url: "http://127.0.0.1:8545",
-      chainId: 31337, // Node reports this, but contract uses its own chainId
+      type: "edr-simulated",
+      chainId: 31337,
       accounts: {
         mnemonic: "test test test test test test test test test test test junk",
       },
     },
     // Chain 2 for multichain message passing testing
-    // Note: The actual chain ID is set in the contract constructor
-    // This network config just needs to match what the node reports
+    // Use in-process simulation to avoid external nodes in tests
     chain2: {
-      type: "http",
-      url: "http://127.0.0.1:8546",
-      chainId: 31337, // Node reports this, but contract uses its own chainId
+      type: "edr-simulated",
+      chainId: 31338,
       accounts: {
         mnemonic: "test test test test test test test test test test test junk",
       },

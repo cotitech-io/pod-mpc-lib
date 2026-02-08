@@ -11,8 +11,8 @@ services:
     #depends_on:
     #  mysql:
     #    condition: service_healthy
-    networks:
-      - devcontainer-network
+    #networks:
+    #  - devcontainer-network
 
 #  mysql:
 #    image: mysql:8.0
@@ -38,7 +38,7 @@ services:
 #volumes:
 #  mysql-data:
 
-networks:
-  devcontainer-network:
-    driver: bridge
+# networks:
+#   devcontainer-network:
+#     driver: bridge
 

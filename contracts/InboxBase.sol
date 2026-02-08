@@ -16,18 +16,17 @@ contract InboxBase is IInbox {
     // Mapping from requestId to Error
     mapping(bytes32 => Error) public errors;
     
-    // Current execution context for incoming messages (used during message execution)
-    ExecutionContext internal _currentContext;
-    
-    // Request nonce for generating unique request IDs (starts at 1)
-    uint256 internal _requestNonce;
-    
     // Incoming requests (requests that need to be delivered to target contracts on this chain)
     mapping(bytes32 => Request) public incomingRequests;
 
     // Last incoming request nonce for each chain
     mapping(uint256 => bytes32) public lastIncomingRequestId;
 
+    // Current execution context for incoming messages (used during message execution)
+    ExecutionContext internal _currentContext;
+    
+    // Request nonce for generating unique request IDs (starts at 1)
+    uint256 internal _requestNonce;
     
     event MessageSent(
         bytes32 indexed requestId,
@@ -56,6 +55,9 @@ contract InboxBase is IInbox {
         bytes errorMessage
     );
 
+    uint64 internal constant ERROR_CODE_EXECUTION_FAILED = 1;
+    uint64 internal constant ERROR_CODE_ENCODE_FAILED = 2;
+
     /// @notice Create an Inbox base with a fixed chain ID.
     /// @param _chainId The chain ID for this inbox instance.
     constructor(uint256 _chainId) {
@@ -80,7 +82,7 @@ contract InboxBase is IInbox {
     ) external virtual returns (bytes32) {
         return _sendTwoWayMessage(targetChainId, targetContract, methodCall, callbackSelector, errorSelector);
     }
-    
+
     /// @dev Internal helper to create a two-way request.
     function _sendTwoWayMessage(
         uint256 targetChainId,
@@ -349,6 +351,37 @@ contract InboxBase is IInbox {
         });
 
         return MpcAbiCodec.reEncodeWithGt(codecCall);
+    }
+
+    /// @dev External wrapper for try/catch around _encodeMethodCall.
+    function _encodeMethodCallExternal(MpcMethodCall calldata methodCall) external returns (bytes memory) {
+        require(msg.sender == address(this), "Inbox: only self");
+        return _encodeMethodCall(methodCall);
+    }
+
+    /// @dev Encode method call without reverting. Returns ok flag and error bytes on failure.
+    function _safeEncodeMethodCall(
+        MpcMethodCall memory methodCall
+    ) internal returns (bool ok, bytes memory callData, bytes memory err) {
+        try this._encodeMethodCallExternal(methodCall) returns (bytes memory data) {
+            return (true, data, new bytes(0));
+        } catch (bytes memory reason) {
+            return (false, new bytes(0), reason);
+        }
+    }
+
+    /// @dev Record a standardized encode error for a request.
+    function _recordEncodeError(bytes32 requestId, bytes memory encodeErr) internal {
+        bytes memory errorMessage = encodeErr.length == 0
+            ? abi.encodePacked("Inbox: encodeMethodCall failed")
+            : encodeErr;
+        Error memory err = Error({
+            requestId: requestId,
+            errorCode: ERROR_CODE_ENCODE_FAILED,
+            errorMessage: errorMessage
+        });
+        errors[requestId] = err;
+        emit ErrorReceived(requestId, ERROR_CODE_ENCODE_FAILED, errorMessage);
     }
     /// @dev Return the original sender for a request ID.
     function _getOriginalSender(bytes32 requestId) internal view returns (address) {

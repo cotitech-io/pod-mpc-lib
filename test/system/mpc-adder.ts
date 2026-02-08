@@ -29,6 +29,8 @@ describe("MpcAdder (system)", async function () {
   let ctx: TestContext;
 
   before(async function () {
+    // Reuse COTI deployments to avoid repeated testnet onboarding/deploys.
+    process.env.COTI_REUSE_CONTRACTS = "true";
     ctx = await setupContext({ sepoliaViem, cotiViem });
   });
 
@@ -89,6 +91,11 @@ describe("MpcAdder (system)", async function () {
     assert.equal(request.sourceRequestId, zeroHash);
     assert.equal(request.callbackSelector, toFunctionSelector("receiveC(bytes)"));
     assert.equal(request.errorSelector, toFunctionSelector("onDefaultMpcError(bytes32)"));
+
+    // Keep mined nonces contiguous across tests by processing the request.
+    await mineRequest(ctx, "coti", BigInt(ctx.chainIds.sepolia), request, "Test1");
+    const responseRequest = await getResponseRequestBySource(ctx.contracts.inboxCoti, request.requestId, "Test1");
+    await mineRequest(ctx, "sepolia", ctx.chainIds.coti, responseRequest, "Test1");
   });
 
   it("Should execute the MPC request on COTI and create a response", async function () {

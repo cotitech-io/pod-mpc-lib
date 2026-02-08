@@ -87,24 +87,59 @@ export const logStep = (message: string) => {
 export const receiptWaitOptions = { timeout: 300_000, pollingInterval: 2_000 };
 
 // Onboards a user on COTI and returns the AES key.
+const aesKeyCache = new Map<string, string>();
+const aesKeyPromiseCache = new Map<string, Promise<string>>();
+
+const normalizePrivateKeyId = (value: string) => value.replace(/^0x/, "").toLowerCase();
+
 export const onboardUser = async (privateKey: string, rpcUrl: string, onboardAddress: string) => {
-  logStep("Onboarding user via coti-ethers");
-  const provider = new JsonRpcProvider(rpcUrl) as any;
-  const wallet = new CotiWallet(privateKey, provider);
-  await wallet.generateOrRecoverAes(onboardAddress);
-  let key = wallet.getUserOnboardInfo()?.aesKey;
-  if (!key) {
-    throw new Error("Failed to onboard user: missing AES key");
+  const privateKeyId = normalizePrivateKeyId(privateKey);
+  const cacheId = `${privateKeyId}:${onboardAddress.toLowerCase()}:${rpcUrl}`;
+
+  const cached = aesKeyCache.get(cacheId);
+  if (cached) {
+    return cached;
   }
-  if (key.startsWith("0x")) {
-    key = key.slice(2);
+
+  const envKey = process.env.COTI_AES_KEY?.trim();
+  const envKeyFor = process.env.COTI_AES_KEY_FOR_PRIVATE_KEY?.trim();
+  if (envKey && envKeyFor && normalizePrivateKeyId(envKeyFor) === privateKeyId) {
+    const normalizedEnvKey = envKey.replace(/^0x/, "");
+    aesKeyCache.set(cacheId, normalizedEnvKey);
+    return normalizedEnvKey;
   }
-  if (key.length > 32) {
-    logStep(`Onboarded AES key length ${key.length}, trimming to 32 hex chars`);
-    key = key.slice(0, 32);
+
+  const inflight = aesKeyPromiseCache.get(cacheId);
+  if (inflight) {
+    return inflight;
   }
-  logStep("Onboarding complete");
-  return key;
+
+  const promise = (async () => {
+    logStep("Onboarding user via coti-ethers");
+    const provider = new JsonRpcProvider(rpcUrl) as any;
+    const wallet = new CotiWallet(privateKey, provider);
+    await wallet.generateOrRecoverAes(onboardAddress);
+    let key = wallet.getUserOnboardInfo()?.aesKey;
+    if (!key) {
+      throw new Error("Failed to onboard user: missing AES key");
+    }
+    if (key.startsWith("0x")) {
+      key = key.slice(2);
+    }
+    if (key.length > 32) {
+      logStep(`Onboarded AES key length ${key.length}, trimming to 32 hex chars`);
+      key = key.slice(0, 32);
+    }
+    logStep("Onboarding complete");
+    aesKeyCache.set(cacheId, key);
+    process.env.COTI_AES_KEY = key;
+    process.env.COTI_AES_KEY_FOR_PRIVATE_KEY = privateKeyId;
+    aesKeyPromiseCache.delete(cacheId);
+    return key;
+  })();
+
+  aesKeyPromiseCache.set(cacheId, promise);
+  return promise;
 };
 
 // Parses a raw request tuple into a typed request object.
@@ -136,6 +171,7 @@ export const parseRequest = (raw: any): Request => {
 // Loads the latest request from the inbox using getRequests.
 export const getLatestRequest = async (inbox: any): Promise<Request> => {
   const requestCount = await inbox.read.getRequestsLen();
+  console.log("number of requests in source", requestCount);
   assert.ok(Number(requestCount) > 0);
   const fromIndex = Number(requestCount) - 1;
   const requests = await getRequests(inbox, fromIndex, 1);
@@ -163,9 +199,13 @@ export const mineRequest = async (
   request: Request,
   label: string
 ): Promise<`0x${string}`> => {
+  console.log("mineRequest", chain, sourceChainId, request, label);
   const inbox = chain === "coti" ? ctx.contracts.inboxCoti : ctx.contracts.inboxSepolia;
   const publicClient = chain === "coti" ? ctx.coti.publicClient : ctx.sepolia.publicClient;
   const chainLabel = chain.toUpperCase();
+  console.log("reading last incoming request id", sourceChainId);
+  const latestMinedRequest = await inbox.read.lastIncomingRequestId([sourceChainId]);
+  logStep(`${label}: latest mined request on ${chainLabel} is ${latestMinedRequest.toString()}`);
   logStep(`${label}: calling batchProcessRequests on ${chainLabel}`);
   const txHash = await inbox.write.batchProcessRequests([
     sourceChainId,
@@ -357,6 +397,15 @@ export const setupContext = async (params: {
     }
   } else {
     logStep("Skipping configureCoti/addMiner (reused contracts)");
+  }
+
+  const sepoliaMiner = sepoliaWallet.account.address;
+  const sepoliaAlreadyMiner = await inboxSepolia.read.isMiner([sepoliaMiner]);
+  if (!sepoliaAlreadyMiner) {
+    logStep(`Adding Sepolia miner ${sepoliaMiner}`);
+    await inboxSepolia.write.addMiner([sepoliaMiner]);
+  } else {
+    logStep("Sepolia miner already configured");
   }
 
   const cotiRpcUrl = requireEnv("COTI_TESTNET_RPC_URL");

@@ -30,6 +30,9 @@ library MpcAbiCodec {
         IT_STRING
     }
 
+    event ValidateCiphertextStart(uint8 dataType, uint256 argLen, bytes32 argHash);
+    event ValidateCiphertextSuccess(uint8 dataType);
+
     struct MpcMethodCallContext {
         IInbox.MpcMethodCall methodCall;
         bytes[] data;
@@ -365,51 +368,67 @@ library MpcAbiCodec {
 
         if (dataType == MpcDataType.IT_UINT64) {
             itUint64 memory itValue = abi.decode(argData, (itUint64));
+            emit ValidateCiphertextStart(uint8(dataType), argData.length, keccak256(argData));
             gtUint64 gtValue = MpcCore.validateCiphertext(itValue);
+            emit ValidateCiphertextSuccess(uint8(dataType));
             return (abi.encode(gtUint64.unwrap(gtValue)), false, 1);
         }
 
         if (dataType == MpcDataType.IT_BOOL) {
             itBool memory itValue = abi.decode(argData, (itBool));
+            emit ValidateCiphertextStart(uint8(dataType), argData.length, keccak256(argData));
             gtBool gtValue = MpcCore.validateCiphertext(itValue);
+            emit ValidateCiphertextSuccess(uint8(dataType));
             return (abi.encode(gtBool.unwrap(gtValue)), false, 1);
         }
 
         if (dataType == MpcDataType.IT_UINT8) {
             itUint8 memory itValue = abi.decode(argData, (itUint8));
+            emit ValidateCiphertextStart(uint8(dataType), argData.length, keccak256(argData));
             gtUint8 gtValue = MpcCore.validateCiphertext(itValue);
+            emit ValidateCiphertextSuccess(uint8(dataType));
             return (abi.encode(gtUint8.unwrap(gtValue)), false, 1);
         }
 
         if (dataType == MpcDataType.IT_UINT16) {
             itUint16 memory itValue = abi.decode(argData, (itUint16));
+            emit ValidateCiphertextStart(uint8(dataType), argData.length, keccak256(argData));
             gtUint16 gtValue = MpcCore.validateCiphertext(itValue);
+            emit ValidateCiphertextSuccess(uint8(dataType));
             return (abi.encode(gtUint16.unwrap(gtValue)), false, 1);
         }
 
         if (dataType == MpcDataType.IT_UINT32) {
             itUint32 memory itValue = abi.decode(argData, (itUint32));
+            emit ValidateCiphertextStart(uint8(dataType), argData.length, keccak256(argData));
             gtUint32 gtValue = MpcCore.validateCiphertext(itValue);
+            emit ValidateCiphertextSuccess(uint8(dataType));
             return (abi.encode(gtUint32.unwrap(gtValue)), false, 1);
         }
 
         if (dataType == MpcDataType.IT_UINT128) {
             itUint128 memory itValue = abi.decode(argData, (itUint128));
+            emit ValidateCiphertextStart(uint8(dataType), argData.length, keccak256(argData));
             gtUint128 memory gtValue = MpcCore.validateCiphertext(itValue);
+            emit ValidateCiphertextSuccess(uint8(dataType));
             bytes memory encoded = abi.encode(gtValue);
             return (encoded, false, encoded.length / 32);
         }
 
         if (dataType == MpcDataType.IT_UINT256) {
             itUint256 memory itValue = abi.decode(argData, (itUint256));
+            emit ValidateCiphertextStart(uint8(dataType), argData.length, keccak256(argData));
             gtUint256 memory gtValue = MpcCore.validateCiphertext(itValue);
+            emit ValidateCiphertextSuccess(uint8(dataType));
             bytes memory encoded = abi.encode(gtValue);
             return (encoded, false, encoded.length / 32);
         }
 
         if (dataType == MpcDataType.IT_STRING) {
             itString memory itValue = abi.decode(argData, (itString));
+            emit ValidateCiphertextStart(uint8(dataType), argData.length, keccak256(argData));
             gtString memory gtValue = MpcCore.validateCiphertext(itValue);
+            emit ValidateCiphertextSuccess(uint8(dataType));
             return (abi.encode(gtValue), true, 0);
         }
 

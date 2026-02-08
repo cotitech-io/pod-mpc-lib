@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it, before } from "node:test";
+import { beforeEach, describe, it } from "node:test";
 import { network } from "hardhat";
 import { decodeAbiParameters, encodeFunctionData, toFunctionSelector, zeroHash } from "viem";
 
@@ -20,7 +20,7 @@ describe("Adder", async function () {
   const getTupleField = (value: any, key: string, index: number) =>
     value?.[key] ?? value?.[index];
 
-  before(async function () {
+  beforeEach(async function () {
     const chain1Id = 31337;
     const chain2Id = 31338;
 
@@ -31,6 +31,7 @@ describe("Adder", async function () {
     mpcExecutor = await viem2.deployContract("MpcExecutorMock", [inbox2.address]);
 
     await adder.write.configureCoti([mpcExecutor.address, BigInt(chain2Id)]);
+    await inbox1.write.addMiner([wallet1.account.address]);
     await inbox2.write.addMiner([wallet2.account.address]);
   });
 

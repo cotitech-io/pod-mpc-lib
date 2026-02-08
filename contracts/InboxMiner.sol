@@ -28,7 +28,24 @@ contract InboxMiner is InboxBase, MinerBase, IInboxMiner {
 
         // Deliver message to target contract
         address targetContract = incomingRequest.targetContract;
-        bytes memory callData = _encodeMethodCall(incomingRequest.methodCall);
+        (bool encodedOk, bytes memory callData, bytes memory encodeErr) = _safeEncodeMethodCall(
+            incomingRequest.methodCall
+        );
+
+        if (!encodedOk) {
+            _recordEncodeError(incomingRequest.requestId, encodeErr);
+
+            // Always clear execution context after execution
+            _currentContext = ExecutionContext({
+                remoteChainId: 0,
+                remoteContract: address(0),
+                requestId: bytes32(0)
+            });
+
+            // Mark as executed after delivery
+            incomingRequest.executed = true;
+            return;
+        }
 
         (bool success, bytes memory returnData) = targetContract.call(callData);
 
@@ -46,11 +63,11 @@ contract InboxMiner is InboxBase, MinerBase, IInboxMiner {
             // Handle error
             Error memory err = Error({
                 requestId: incomingRequest.requestId,
-                errorCode: 1,
+                errorCode: ERROR_CODE_EXECUTION_FAILED,
                 errorMessage: returnData
             });
             errors[incomingRequest.requestId] = err;
-            emit ErrorReceived(incomingRequest.requestId, 1, returnData);
+            emit ErrorReceived(incomingRequest.requestId, ERROR_CODE_EXECUTION_FAILED, returnData);
         }
         // If success and respond() was called, the response request was already created
     }
@@ -66,7 +83,7 @@ contract InboxMiner is InboxBase, MinerBase, IInboxMiner {
     ) external onlyMiner {
         require(sourceChainId != chainId, "Inbox: sourceChainId cannot be this chain");
 
-        uint256 allowedNonce = 0;
+        uint256 allowedNonce = 1;
         if (lastIncomingRequestId[sourceChainId] != bytes32(0)) {
             (, allowedNonce) = _unpackRequestId(lastIncomingRequestId[sourceChainId]);
             allowedNonce++;
@@ -78,7 +95,7 @@ contract InboxMiner is InboxBase, MinerBase, IInboxMiner {
             bytes32 requestId = minedRequest.requestId;
             (, uint256 minedNonce) = _unpackRequestId(requestId);
             require(minedNonce == allowedNonce, "Inbox: mined nonces must be contiguous");
-            allowedNonce = minedNonce + 1;
+            allowedNonce = minedNonce;
             Request storage incomingRequest = incomingRequests[requestId];
 
             if (incomingRequest.requestId == bytes32(0)) {
@@ -119,15 +136,24 @@ contract InboxMiner is InboxBase, MinerBase, IInboxMiner {
                 Request storage originalRequest = requests[originalRequestId];
 
                 if (originalRequest.requestId != bytes32(0) && !originalRequest.executed) {
-                    Response memory response = Response({
-                        responseRequestId: originalRequestId,
-                        response: _encodeMethodCall(incomingRequest.methodCall)
-                    });
+                    (bool responseOk, bytes memory responseData, bytes memory responseErr) = _safeEncodeMethodCall(
+                        incomingRequest.methodCall
+                    );
 
-                    inboxResponses[originalRequestId] = response;
-                    originalRequest.executed = true;
+                    if (!responseOk) {
+                        _recordEncodeError(originalRequestId, responseErr);
+                        originalRequest.executed = true;
+                    } else {
+                        Response memory response = Response({
+                            responseRequestId: originalRequestId,
+                            response: responseData
+                        });
 
-                    emit ResponseReceived(originalRequestId, _encodeMethodCall(incomingRequest.methodCall));
+                        inboxResponses[originalRequestId] = response;
+                        originalRequest.executed = true;
+
+                        emit ResponseReceived(originalRequestId, responseData);
+                    }
                 }
             }
         }

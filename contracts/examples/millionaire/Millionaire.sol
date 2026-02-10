@@ -7,13 +7,15 @@ import "../../IInbox.sol";
 import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 
 contract Millionaire is MpcLib {
+    event RevealResult(bytes32 indexed requestId, ctBool result);
+
     constructor(address _inbox) {
         setInbox(_inbox);
     }
 
     mapping(address => itUint64) internal encryptedWealthOf;
     mapping(address => mapping(address => bytes32)) internal revealRequests;
-    mapping(bytes32 => ctBool) internal revealResults;
+    mapping(bytes32 => ctBool) public revealResults;
 
     function isWealthRegistered(address account) public view returns (bool) {
         return encryptedWealthOf[account].signature.length != 0;
@@ -43,11 +45,7 @@ contract Millionaire is MpcLib {
     }
 
     function revealMyWealthGtThan(address b) external view returns (bool,ctBool) {
-        bytes32 requestId = revealRequests[msg.sender][b];
-        if (requestId == 0) {
-            return (false, ctBool.wrap(0));
-        }
-        return (true, revealResults[requestId]);
+        return revealWealthComparison(msg.sender, b);
     }
 
     function revealCallback(bytes memory data) external onlyInbox {
@@ -57,5 +55,14 @@ contract Millionaire is MpcLib {
         }
         ctBool result = abi.decode(data, (ctBool));
         revealResults[requestId] = result;
+        emit RevealResult(requestId, result);
+    }
+
+    function revealWealthComparison(address a,address b) public view returns (bool,ctBool) {
+        bytes32 requestId = revealRequests[a][b];
+        if (requestId == 0) {
+            return (false, ctBool.wrap(0));
+        }
+        return (true, revealResults[requestId]);
     }
 }

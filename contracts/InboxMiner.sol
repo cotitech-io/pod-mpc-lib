@@ -95,7 +95,7 @@ contract InboxMiner is InboxBase, MinerBase, IInboxMiner {
             bytes32 requestId = minedRequest.requestId;
             (, uint256 minedNonce) = _unpackRequestId(requestId);
             require(minedNonce == allowedNonce, "Inbox: mined nonces must be contiguous");
-            allowedNonce = minedNonce;
+            allowedNonce++;
             Request storage incomingRequest = incomingRequests[requestId];
             require(incomingRequest.requestId == bytes32(0), "Inbox: request already processed");
             require(minedRequest.sourceContract != address(0), "Inbox: invalid source contract");

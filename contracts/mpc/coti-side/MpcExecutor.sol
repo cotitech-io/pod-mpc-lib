@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.26;
+
+import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
+
+import "../../InboxUser.sol";
+import "./ICommonMpcMethods.sol";
+
+/**
+ * @title MpcExecutor
+ * @notice This is the executor contract for common MpcMethods that can be called
+ *         remotely from a client chain.
+ */
+contract MpcExecutor is ICommonMpcMethods, InboxUser {
+    event GtResult(ctBool result, address cOwner);
+    event AddResult(ctUint64 result, address cOwner);
+    event ValidateResult(ctUint64 result, address cOwner);
+
+    /// @notice Create an MPC executor bound to an inbox.
+    /// @param _inbox The inbox contract address.
+    constructor(address _inbox) {
+        setInbox(_inbox);
+    }
+
+    /// @notice Perform MPC add and respond with the result ciphertext.
+    /// @dev This function is called remotely by the Inbox.
+    /// @param gtA Encrypted a (gtUint64).
+    /// @param gtB Encrypted b (gtUint64).
+    /// @param cOwner The owner of the result ciphertext.
+    function add(gtUint64 gtA, gtUint64 gtB, address cOwner) external onlyInbox {
+        gtUint64 gtC = MpcCore.add(gtA, gtB);
+        utUint64 memory combined = MpcCore.offBoardCombined(gtC, cOwner);
+
+        emit AddResult(combined.userCiphertext, cOwner);
+
+        bytes memory data = abi.encode(combined.userCiphertext);
+        inbox.respond(data);
+    }
+
+    /// @notice Perform MPC gt and respond with the result ciphertext.
+    /// @dev This function is called remotely by the Inbox.
+    /// @param gtA Encrypted a (gtUint64).
+    /// @param gtB Encrypted b (gtUint64).
+    /// @param cOwner The owner of the result ciphertext.
+    function gt(gtUint64 gtA, gtUint64 gtB, address cOwner) external onlyInbox {
+        gtBool gtC = MpcCore.gt(gtA, gtB);
+        utBool memory combined = MpcCore.offBoardCombined(gtC, cOwner);
+
+        emit GtResult(combined.userCiphertext, cOwner);
+
+        bytes memory data = abi.encode(combined.userCiphertext);
+        inbox.respond(data);
+    }
+}

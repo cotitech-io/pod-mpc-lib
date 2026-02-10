@@ -121,20 +121,20 @@ const main = async () => {
     network: cotiChainLabel,
   });
 
-  let adderAddress: `0x${string}` | undefined;
+  let millionaireAddress: `0x${string}` | undefined;
   if (!ONLY_MPC_ADDER) {
-    console.log("[deploy-full-testnet] Deploying Adder...");
-    const adder = await sourceViem.deployContract("Adder", [sourceInbox.address], {
+    console.log("[deploy-full-testnet] Deploying Millionaire...");
+    const millionaire = await sourceViem.deployContract("Millionaire", [sourceInbox.address], {
       client: { public: sourcePublicClient, wallet: sourceWalletClient },
     });
-    adderAddress = adder.address;
-    console.log(`[deploy-full-testnet] Adder deployed: ${adder.address}`);
-    console.log("[deploy-full-testnet] Configuring Adder...");
-    await adder.write.configureCoti([cotiExecutor.address, cotiChainId]);
-    console.log("[deploy-full-testnet] Adder configured");
+    millionaireAddress = millionaire.address;
+    console.log(`[deploy-full-testnet] Millionaire deployed: ${millionaire.address}`);
+    console.log("[deploy-full-testnet] Configuring Millionaire...");
+    await millionaire.write.configureCoti([cotiExecutor.address, cotiChainId]);
+    console.log("[deploy-full-testnet] Millionaire configured");
     await appendDeploymentLog({
-      contract: "Adder",
-      address: adder.address,
+      contract: "Millionaire",
+      address: millionaire.address,
       chainId: sourceChainId,
       network: sourceChainLabel,
     });
@@ -198,8 +198,8 @@ const main = async () => {
   await verifyContract(SOURCE_NETWORK, "Inbox", sourceInbox.address, ["0"]);
   await verifyContract(COTI_NETWORK, "Inbox", cotiInbox.address, ["0"]);
   await verifyContract(COTI_NETWORK, "MpcExecutor", cotiExecutor.address, [cotiInbox.address]);
-  if (adderAddress) {
-    await verifyContract(SOURCE_NETWORK, "Adder", adderAddress, [sourceInbox.address]);
+  if (millionaireAddress) {
+    await verifyContract(SOURCE_NETWORK, "Millionaire", millionaireAddress, [sourceInbox.address]);
   }
   await verifyContract(SOURCE_NETWORK, "MpcAdder", mpcAdder.address, [sourceInbox.address]);
   if (pErc20Address) {

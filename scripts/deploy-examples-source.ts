@@ -36,18 +36,18 @@ const main = async () => {
   console.log(`[deploy-examples-source] COTI executor=${cotiExecutorAddress} cotiChainId=${cotiChainId}`);
 
   if (!ONLY_MPC_ADDER) {
-    console.log("[deploy-examples-source] Deploying Adder...");
-    const adder = await viem.deployContract("Adder", [inboxAddress], {
+    console.log("[deploy-examples-source] Deploying Millionaire...");
+    const millionaire = await viem.deployContract("Millionaire", [inboxAddress], {
       client: { public: publicClient, wallet: walletClient },
     });
-    console.log(`[deploy-examples-source] Adder deployed: ${adder.address}`);
-    console.log("[deploy-examples-source] Configuring Adder...");
-    await adder.write.configureCoti([cotiExecutorAddress, cotiChainId]);
-    console.log("[deploy-examples-source] Adder configured");
-    console.log("[deploy-examples-source] Writing Adder log entry");
+    console.log(`[deploy-examples-source] Millionaire deployed: ${millionaire.address}`);
+    console.log("[deploy-examples-source] Configuring Millionaire...");
+    await millionaire.write.configureCoti([cotiExecutorAddress, cotiChainId]);
+    console.log("[deploy-examples-source] Millionaire configured");
+    console.log("[deploy-examples-source] Writing Millionaire log entry");
     await appendDeploymentLog({
-      contract: "Adder",
-      address: adder.address,
+      contract: "Millionaire",
+      address: millionaire.address,
       chainId,
       network: networkLabel,
     });

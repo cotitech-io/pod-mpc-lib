@@ -12,6 +12,7 @@ import "./ICommonMpcMethods.sol";
  *         remotely from a client chain.
  */
 contract MpcExecutor is ICommonMpcMethods, InboxUser {
+    event GtResult(ctBool result, address cOwner);
     event AddResult(ctUint64 result, address cOwner);
     event ValidateResult(ctUint64 result, address cOwner);
 
@@ -35,7 +36,19 @@ contract MpcExecutor is ICommonMpcMethods, InboxUser {
         bytes memory data = abi.encode(combined.userCiphertext);
         inbox.respond(data);
     }
+
+    /// @notice Perform MPC gt and respond with the result ciphertext.
+    /// @dev This function is called remotely by the Inbox.
+    /// @param gtA Encrypted a (gtUint64).
+    /// @param gtB Encrypted b (gtUint64).
+    /// @param cOwner The owner of the result ciphertext.
+    function gt(gtUint64 gtA, gtUint64 gtB, address cOwner) external onlyInbox {
+        gtBool gtC = MpcCore.gt(gtA, gtB);
+        utBool memory combined = MpcCore.offBoardCombined(gtC, cOwner);
+
+        emit GtResult(combined.userCiphertext, cOwner);
+
+        bytes memory data = abi.encode(combined.userCiphertext);
+        inbox.respond(data);
+    }
 }
-
-
-

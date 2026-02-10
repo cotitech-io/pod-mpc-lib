@@ -48,6 +48,11 @@ contract InboxBase is IInbox {
         bytes32 indexed requestId,
         bytes response
     );
+
+    event IncomingResponseReceived(
+        bytes32 indexed requestId,
+        bytes32 indexed sourceRequestId
+    );
     
     event ErrorReceived(
         bytes32 indexed requestId,
@@ -166,6 +171,18 @@ contract InboxBase is IInbox {
         require(_currentContext.requestId != bytes32(0), "Inbox: no active message");
         
         return (_currentContext.remoteChainId, _currentContext.remoteContract);
+    }
+
+    function inboxRequestId() external view returns (bytes32) {
+        require(_currentContext.requestId != bytes32(0), "Inbox: no active message");
+        return _currentContext.requestId;
+    }
+
+    /// @notice Get the source request ID for the currently executing message.
+    /// @return sourceRequestId The source request ID.
+    function inboxSourceRequestId() external view returns (bytes32) {
+        require(_currentContext.requestId != bytes32(0), "Inbox: no active message"); 
+        return incomingRequests[_currentContext.requestId].sourceRequestId;
     }
 
     /// @notice Responds to an incoming message by creating a one-way response request

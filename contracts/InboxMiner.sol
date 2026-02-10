@@ -97,35 +97,30 @@ contract InboxMiner is InboxBase, MinerBase, IInboxMiner {
             require(minedNonce == allowedNonce, "Inbox: mined nonces must be contiguous");
             allowedNonce = minedNonce;
             Request storage incomingRequest = incomingRequests[requestId];
+            require(incomingRequest.requestId == bytes32(0), "Inbox: request already processed");
+            require(minedRequest.sourceContract != address(0), "Inbox: invalid source contract");
+            require(minedRequest.targetContract != address(0), "Inbox: invalid target contract");
 
-            if (incomingRequest.requestId == bytes32(0)) {
-                require(minedRequest.sourceContract != address(0), "Inbox: invalid source contract");
-                require(minedRequest.targetContract != address(0), "Inbox: invalid target contract");
+            Request memory newIncomingRequest = Request({
+                requestId: requestId,
+                targetChainId: sourceChainId,
+                targetContract: minedRequest.targetContract,
+                methodCall: minedRequest.methodCall,
+                callerContract: minedRequest.sourceContract,
+                originalSender: minedRequest.sourceContract,
+                timestamp: uint64(block.timestamp),
+                callbackSelector: minedRequest.callbackSelector,
+                errorSelector: minedRequest.errorSelector,
+                isTwoWay: minedRequest.isTwoWay,
+                executed: false,
+                sourceRequestId: minedRequest.sourceRequestId
+            });
 
-                Request memory newIncomingRequest = Request({
-                    requestId: requestId,
-                    targetChainId: sourceChainId,
-                    targetContract: minedRequest.targetContract,
-                    methodCall: minedRequest.methodCall,
-                    callerContract: minedRequest.sourceContract,
-                    originalSender: minedRequest.sourceContract,
-                    timestamp: uint64(block.timestamp),
-                    callbackSelector: minedRequest.callbackSelector,
-                    errorSelector: minedRequest.errorSelector,
-                    isTwoWay: minedRequest.isTwoWay,
-                    executed: false,
-                    sourceRequestId: minedRequest.sourceRequestId
-                });
+            incomingRequests[requestId] = newIncomingRequest;
+            incomingRequest = incomingRequests[requestId];
+            emit MessageReceived(requestId, sourceChainId, minedRequest.sourceContract, minedRequest.methodCall);
 
-                incomingRequests[requestId] = newIncomingRequest;
-                incomingRequest = incomingRequests[requestId];
-
-                emit MessageReceived(requestId, sourceChainId, minedRequest.sourceContract, minedRequest.methodCall);
-            }
-
-            if (!incomingRequest.executed) {
-                _executeIncomingRequest(incomingRequest, sourceChainId);
-            }
+            _executeIncomingRequest(incomingRequest, sourceChainId);
 
             // If this is a response request (one-way with sourceRequestId set),
             // update the original request as executed and store the response data.
@@ -136,24 +131,8 @@ contract InboxMiner is InboxBase, MinerBase, IInboxMiner {
                 Request storage originalRequest = requests[originalRequestId];
 
                 if (originalRequest.requestId != bytes32(0) && !originalRequest.executed) {
-                    (bool responseOk, bytes memory responseData, bytes memory responseErr) = _safeEncodeMethodCall(
-                        incomingRequest.methodCall
-                    );
-
-                    if (!responseOk) {
-                        _recordEncodeError(originalRequestId, responseErr);
-                        originalRequest.executed = true;
-                    } else {
-                        Response memory response = Response({
-                            responseRequestId: originalRequestId,
-                            response: responseData
-                        });
-
-                        inboxResponses[originalRequestId] = response;
-                        originalRequest.executed = true;
-
-                        emit ResponseReceived(originalRequestId, responseData);
-                    }
+                    originalRequest.executed = true;
+                    emit IncomingResponseReceived(originalRequestId, incomingRequest.requestId);
                 }
             }
         }

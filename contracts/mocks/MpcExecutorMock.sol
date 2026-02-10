@@ -8,6 +8,7 @@ import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 
 contract MpcExecutorMock is ICommonMpcMethods, InboxUser {
     event AddResult(uint c, address cOwner);
+    event GtResult(uint result, address cOwner);
 
     /// @notice Create a mock MPC executor bound to an inbox.
     /// @param _inbox The inbox contract address.
@@ -23,6 +24,17 @@ contract MpcExecutorMock is ICommonMpcMethods, InboxUser {
         uint c = uint256(gtUint64.unwrap(a)) + uint256(gtUint64.unwrap(b));
         bytes memory data = abi.encode(c);
         emit AddResult(c, cOwner);
+        inbox.respond(data);
+    }
+
+    /// @notice Mock gt implementation invoked remotely by the inbox.
+    /// @param a Encrypted input a.
+    /// @param b Encrypted input b.
+    /// @param cOwner The owner of the result.
+    function gt(gtUint64 a, gtUint64 b, address cOwner) external onlyInbox {
+        uint result = uint256(gtUint64.unwrap(a)) > uint256(gtUint64.unwrap(b)) ? 1 : 0;
+        bytes memory data = abi.encode(result);
+        emit GtResult(result, cOwner);
         inbox.respond(data);
     }
 }

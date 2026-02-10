@@ -75,6 +75,9 @@ export const requirePrivateKey = (key: string) => {
   return value;
 };
 
+// Normalizes a private key to 0x-prefixed hex.
+export const normalizePrivateKey = (key: string) => (key.startsWith("0x") ? key : `0x${key}`);
+
 // Returns a trimmed environment variable or empty string.
 export const envOrEmpty = (key: string) => process.env[key]?.trim() ?? "";
 
@@ -92,7 +95,7 @@ const aesKeyPromiseCache = new Map<string, Promise<string>>();
 
 const normalizePrivateKeyId = (value: string) => value.replace(/^0x/, "").toLowerCase();
 
-export const onboardUser = async (privateKey: string, rpcUrl: string, onboardAddress: string) => {
+export const onboardUser = async (privateKey: string, rpcUrl: string, onboardAddress: string, keyEnv: string = 'COTI_AES_KEY') => {
   const privateKeyId = normalizePrivateKeyId(privateKey);
   const cacheId = `${privateKeyId}:${onboardAddress.toLowerCase()}:${rpcUrl}`;
 
@@ -101,9 +104,8 @@ export const onboardUser = async (privateKey: string, rpcUrl: string, onboardAdd
     return cached;
   }
 
-  const envKey = process.env.COTI_AES_KEY?.trim();
-  const envKeyFor = process.env.COTI_AES_KEY_FOR_PRIVATE_KEY?.trim();
-  if (envKey && envKeyFor && normalizePrivateKeyId(envKeyFor) === privateKeyId) {
+  const envKey = process.env[keyEnv];
+  if (envKey) {
     const normalizedEnvKey = envKey.replace(/^0x/, "");
     aesKeyCache.set(cacheId, normalizedEnvKey);
     return normalizedEnvKey;
@@ -201,27 +203,35 @@ export const mineRequest = async (
 ): Promise<`0x${string}`> => {
   console.log("mineRequest", chain, sourceChainId, request, label);
   const inbox = chain === "coti" ? ctx.contracts.inboxCoti : ctx.contracts.inboxSepolia;
-  const publicClient = chain === "coti" ? ctx.coti.publicClient : ctx.sepolia.publicClient;
+  const walletClient = chain === "coti" ? ctx.coti.wallet : ctx.sepolia.wallet;
   const chainLabel = chain.toUpperCase();
+  logStep(`${label}: using ${chainLabel} inbox ${inbox.address}`);
+  logStep(`${label}: ${chainLabel} inbox wallet ${walletClient?.account?.address ?? "unknown"}`);
+  const publicClient = chain === "coti" ? ctx.coti.publicClient : ctx.sepolia.publicClient;
   console.log("reading last incoming request id", sourceChainId);
   const latestMinedRequest = await inbox.read.lastIncomingRequestId([sourceChainId]);
   logStep(`${label}: latest mined request on ${chainLabel} is ${latestMinedRequest.toString()}`);
   logStep(`${label}: calling batchProcessRequests on ${chainLabel}`);
-  const txHash = await inbox.write.batchProcessRequests([
-    sourceChainId,
+  const txHash = await inbox.write.batchProcessRequests(
     [
-      {
-        requestId: request.requestId,
-        sourceContract: request.originalSender,
-        targetContract: request.targetContract,
-        methodCall: request.methodCall,
-        callbackSelector: request.callbackSelector ?? "0x00000000",
-        errorSelector: request.errorSelector ?? "0x00000000",
-        isTwoWay: request.isTwoWay,
-        sourceRequestId: request.sourceRequestId,
-      },
+      sourceChainId,
+      [
+        {
+          requestId: request.requestId,
+          sourceContract: request.originalSender,
+          targetContract: request.targetContract,
+          methodCall: request.methodCall,
+          callbackSelector: request.callbackSelector ?? "0x00000000",
+          errorSelector: request.errorSelector ?? "0x00000000",
+          isTwoWay: request.isTwoWay,
+          sourceRequestId: request.sourceRequestId,
+        },
+      ],
     ],
-  ]);
+    {
+      account: walletClient?.account,
+    }
+  );
   logStep(`${label}: waiting for ${chainLabel} tx ${txHash}`);
   await publicClient.waitForTransactionReceipt({ hash: txHash, ...receiptWaitOptions });
   return txHash;
@@ -235,10 +245,21 @@ export const getResponseRequestBySource = async (
 ): Promise<Request> => {
   const rawResponse = await inboxCoti.read.inboxResponses([sourceRequestId]);
   const responseRequestId = getTupleField(rawResponse, "responseRequestId", 0) as `0x${string}`;
-  assert.ok(
+  const hasResponse =
     responseRequestId &&
-      responseRequestId !== "0x0000000000000000000000000000000000000000000000000000000000000000"
-  );
+    responseRequestId !== "0x0000000000000000000000000000000000000000000000000000000000000000";
+  if (!hasResponse) {
+    const err = await inboxCoti.read.errors([sourceRequestId]);
+    const errId = getTupleField(err, "requestId", 0);
+    if (errId && errId !== "0x0000000000000000000000000000000000000000000000000000000000000000") {
+      const errorCode = getTupleField(err, "errorCode", 1);
+      const errorMessage = getTupleField(err, "errorMessage", 2);
+      throw new Error(
+        `COTI execution failed for ${label}: errorCode=${errorCode} errorMessage=${errorMessage ?? "unknown"}`
+      );
+    }
+    throw new Error(`Missing COTI response for ${label}: responseRequestId not set`);
+  }
   logStep(`${label}: responseRequestId=${responseRequestId}`);
 
   const rawRequest = await inboxCoti.read.requests([responseRequestId]);
@@ -260,10 +281,14 @@ export const buildEncryptedInput = async (
     ctx.contracts.inboxCoti.address,
     functionSelector
   );
+  const signature =
+    typeof inputText.signature === "string"
+      ? (inputText.signature as `0x${string}`)
+      : toHex(inputText.signature as any);
   const ciphertext = normalizeCiphertext(inputText.ciphertext);
   return {
     ciphertext,
-    signature: toHex(inputText.signature as any),
+    signature,
   };
 };
 
@@ -302,9 +327,8 @@ export const setupContext = async (params: {
   const sepoliaPublicClient = await params.sepoliaViem.getPublicClient();
   const cotiPublicClient = await params.cotiViem.getPublicClient({ chain: cotiChain });
   const [sepoliaWallet] = await params.sepoliaViem.getWalletClients();
-  const cotiAccount = privateKeyToAccount(
-    `0x${requirePrivateKey("COTI_TESTNET_PRIVATE_KEY").replace(/^0x/, "")}` as `0x${string}`
-  );
+  const cotiPrivateKeyMain = normalizePrivateKey(requirePrivateKey("COTI_TESTNET_PRIVATE_KEY"));
+  const cotiAccount = privateKeyToAccount(cotiPrivateKeyMain as `0x${string}`);
   const hardhatCotiWallet = await params.sepoliaViem.getWalletClient(cotiAccount.address);
   const cotiWallet = await params.cotiViem.getWalletClient(cotiAccount.address, { chain: cotiChain });
 
@@ -385,13 +409,22 @@ export const setupContext = async (params: {
     });
     logStep(`Saved COTI deployments to ${cotiDeploymentsPath}`);
   }
+  logStep(`COTI inbox address in use: ${inboxCoti.address}`);
 
   if (!reuseSepolia || !reuseCoti) {
     logStep("Configuring COTI executor + miner");
     await mpcAdder.write.configureCoti([mpcExecutor.address, cotiChainId]);
+    const cotiOwner = await inboxCoti.read.owner();
+    logStep(`COTI inbox owner ${cotiOwner}`);
     const alreadyMiner = await inboxCoti.read.isMiner([cotiWallet.account.address]);
     if (!alreadyMiner) {
-      await inboxCoti.write.addMiner([cotiWallet.account.address]);
+      logStep(`Adding COTI miner ${cotiWallet.account.address}`);
+      const addMinerTx = await inboxCoti.write.addMiner([cotiWallet.account.address], {
+        account: cotiWallet.account,
+      });
+      await cotiPublicClient.waitForTransactionReceipt({ hash: addMinerTx, ...receiptWaitOptions });
+      const confirmedMiner = await inboxCoti.read.isMiner([cotiWallet.account.address]);
+      logStep(`COTI miner confirmed=${confirmedMiner}`);
     } else {
       logStep("COTI miner already configured");
     }
@@ -426,6 +459,16 @@ export const setupContext = async (params: {
     chainIds: { sepolia: sepoliaChainId, coti: cotiChainId },
   };
 };
+
+export async function getCotiCrypto(privateKey: string, rpcUrl: string, keyEnv: string) {
+  const cotiProvider = new JsonRpcProvider(rpcUrl) as any;
+  const normalizedKey = normalizePrivateKey(privateKey);
+  const cotiEncryptWallet = new CotiWallet(normalizedKey, cotiProvider as any);
+  const onboardAddress = process.env.COTI_ONBOARD_CONTRACT_ADDRESS || ONBOARD_CONTRACT_ADDRESS;
+  const userKey = await onboardUser(normalizedKey, rpcUrl, onboardAddress, keyEnv);
+  cotiEncryptWallet.setAesKey(userKey);
+  return { cotiEncryptWallet, userKey };
+}
 
 // Normalizes ciphertext into a bigint for MPC encoding.
 const normalizeCiphertext = (ciphertext: unknown): bigint => {

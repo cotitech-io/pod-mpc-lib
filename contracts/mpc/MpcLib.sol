@@ -25,8 +25,8 @@ abstract contract MpcLib is MpcUser {
     /// @param errorSelector Callback to invoke on error.
     /// @return requestId The created request ID.
     function add(
-        itUint64 calldata a,
-        itUint64 calldata b,
+        itUint64 memory a,
+        itUint64 memory b,
         address cOwner,
         bytes4 callbackSelector,
         bytes4 errorSelector
@@ -46,6 +46,30 @@ abstract contract MpcLib is MpcUser {
             errorSelector
         );
     }
+
+    function gt(
+        itUint64 memory a,
+        itUint64 memory b,
+        address cOwner,
+        bytes4 callbackSelector,
+        bytes4 errorSelector
+    ) internal returns (bytes32) {
+        IInbox.MpcMethodCall memory methodCall =
+            MpcAbiCodec.create(ICommonMpcMethods.gt.selector, 3)
+            .addArgument(a) // For gt data type, we use it equivalent, which is user encrypted
+            .addArgument(b)
+            .addArgument(cOwner)
+            .build();
+
+        return IInbox(inbox).sendTwoWayMessage(
+            cotiChainId,
+            mpcExecutorAddress,
+            methodCall,
+            callbackSelector,
+            errorSelector
+        );
+    }
+
 
     /// @notice Default error handler for MPC requests.
     /// @param requestId The failed request ID.

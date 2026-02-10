@@ -85,6 +85,14 @@ interface IInbox {
     /// @return contractAddress The remote contract address.
     function inboxMsgSender() external view returns (uint256 chainId, address contractAddress);
 
+    /// @notice Get the request ID for the currently executing message.
+    /// @return requestId The request ID.
+    function inboxRequestId() external view returns (bytes32);
+
+    /// @notice Get the source request ID for the currently executing message.
+    /// @return sourceRequestId The source request ID.
+    function inboxSourceRequestId() external view returns (bytes32);
+
     /// @notice Respond to the current incoming message.
     /// @param data The response payload to send back.
     function respond(bytes memory data) external;

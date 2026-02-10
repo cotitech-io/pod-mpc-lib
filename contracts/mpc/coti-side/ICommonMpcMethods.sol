@@ -14,4 +14,10 @@ interface ICommonMpcMethods {
     /// @param b Encrypted input b.
     /// @param cOwner Owner of the result ciphertext.
     function add(gtUint64 a, gtUint64 b, address cOwner) external;
+
+    /// @notice Compare two encrypted values and emit/return the result to the owner.
+    /// @param a Encrypted input a.
+    /// @param b Encrypted input b.
+    /// @param cOwner Owner of the result ciphertext.
+    function gt(gtUint64 a, gtUint64 b, address cOwner) external;
 }

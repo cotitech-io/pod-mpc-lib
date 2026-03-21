@@ -14,6 +14,8 @@ import "./ICommonMpcMethods.sol";
 contract MpcExecutor is ICommonMpcMethods, InboxUser {
     event GtResult(ctBool result, address cOwner);
     event AddResult(ctUint64 result, address cOwner);
+    event Add128Result(ctUint128 result, address cOwner);
+    event Add256Result(ctUint256 result, address cOwner);
     event ValidateResult(ctUint64 result, address cOwner);
 
     /// @notice Create an MPC executor bound to an inbox.
@@ -47,6 +49,36 @@ contract MpcExecutor is ICommonMpcMethods, InboxUser {
         utBool memory combined = MpcCore.offBoardCombined(gtC, cOwner);
 
         emit GtResult(combined.userCiphertext, cOwner);
+
+        bytes memory data = abi.encode(combined.userCiphertext);
+        inbox.respond(data);
+    }
+
+    /// @notice Perform MPC add on 128-bit values and respond with the result ciphertext.
+    /// @dev This function is called remotely by the Inbox.
+    /// @param gtA Encrypted a (gtUint128).
+    /// @param gtB Encrypted b (gtUint128).
+    /// @param cOwner The owner of the result ciphertext.
+    function add128(gtUint128 memory gtA, gtUint128 memory gtB, address cOwner) external onlyInbox {
+        gtUint128 memory gtC = MpcCore.add(gtA, gtB);
+        utUint128 memory combined = MpcCore.offBoardCombined(gtC, cOwner);
+
+        emit Add128Result(combined.userCiphertext, cOwner);
+
+        bytes memory data = abi.encode(combined.userCiphertext);
+        inbox.respond(data);
+    }
+
+    /// @notice Perform MPC add on 256-bit values and respond with the result ciphertext.
+    /// @dev This function is called remotely by the Inbox.
+    /// @param gtA Encrypted a (gtUint256).
+    /// @param gtB Encrypted b (gtUint256).
+    /// @param cOwner The owner of the result ciphertext.
+    function add256(gtUint256 memory gtA, gtUint256 memory gtB, address cOwner) external onlyInbox {
+        gtUint256 memory gtC = MpcCore.add(gtA, gtB);
+        utUint256 memory combined = MpcCore.offBoardCombined(gtC, cOwner);
+
+        emit Add256Result(combined.userCiphertext, cOwner);
 
         bytes memory data = abi.encode(combined.userCiphertext);
         inbox.respond(data);

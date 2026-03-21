@@ -34,7 +34,7 @@ library MpcAbiCodec {
     event ValidateCiphertextSuccess(uint8 dataType);
 
     struct MpcMethodCallContext {
-        IInbox.MpcMethodCall methodCall;
+        IInbox.MpcMethodCall mpcMethodCall;
         bytes[] data;
         uint dataSize;
         uint argIndex;
@@ -46,7 +46,7 @@ library MpcAbiCodec {
     /// @return context The initialized method call context.
     function create(bytes4 selector, uint argCount) internal pure returns (MpcMethodCallContext memory) {
         return MpcMethodCallContext({
-            methodCall: IInbox.MpcMethodCall({
+            mpcMethodCall: IInbox.MpcMethodCall({
             selector: selector,
             data: new bytes(0),
             datatypes: new bytes8[](argCount),
@@ -232,15 +232,15 @@ library MpcAbiCodec {
         uint cursor = 0;
         for (uint i = 0; i < methodCall.argIndex; i++) {
             bytes memory chunk = methodCall.data[i];
-            methodCall.methodCall.datalens[i] = bytes32(chunk.length);
+            methodCall.mpcMethodCall.datalens[i] = bytes32(chunk.length);
             for (uint j = 0; j < chunk.length; j++) {
                 resized[cursor + j] = chunk[j];
             }
             cursor += chunk.length;
         }
 
-        methodCall.methodCall.data = resized;
-        return methodCall.methodCall;
+        methodCall.mpcMethodCall.data = resized;
+        return methodCall.mpcMethodCall;
     }
 
     /// @notice Re-encode a method call, validating it-* types to gt-* and rebuilding calldata.
@@ -311,17 +311,17 @@ library MpcAbiCodec {
 
     /// @dev Append an encoded argument and update type metadata and data size.
     function _appendArgument(
-        MpcMethodCallContext memory methodCall,
+        MpcMethodCallContext memory methodCallContext,
         bytes memory encodedArg,
         MpcDataType dataType
     ) internal pure returns (MpcMethodCallContext memory) {
-        require(methodCall.argIndex < methodCall.methodCall.datatypes.length, "MpcAbiCodec: too many args");
+        require(methodCallContext.argIndex < methodCallContext.mpcMethodCall.datatypes.length, "MpcAbiCodec: too many args");
 
-        methodCall.methodCall.datatypes[methodCall.argIndex] = bytes8(uint64(uint8(dataType)));
-        methodCall.data[methodCall.argIndex] = encodedArg;
-        methodCall.dataSize += encodedArg.length;
-        methodCall.argIndex += 1;
-        return methodCall;
+        methodCallContext.mpcMethodCall.datatypes[methodCallContext.argIndex] = bytes8(uint64(uint8(dataType)));
+        methodCallContext.data[methodCallContext.argIndex] = encodedArg;
+        methodCallContext.dataSize += encodedArg.length;
+        methodCallContext.argIndex += 1;
+        return methodCallContext;
     }
 
     /// @dev Read a 32-byte word from a bytes array at the given offset.

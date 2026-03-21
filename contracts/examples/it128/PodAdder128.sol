@@ -2,13 +2,13 @@
 pragma solidity ^0.8.26;
 
 import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
+import "../../mpc/PodLib.sol";
 
-import "../mpc/PodLib.sol";
 
-contract MpcAdder is PodLib {
+contract PodAdder128 is PodLib {
     event AddRequest(bytes32 requestId);
 
-    ctUint64 private _result;
+    ctUint128 private _result;
 
     /// @notice Create an MPC adder bound to an inbox.
     /// @param _inbox The inbox contract address.
@@ -17,14 +17,14 @@ contract MpcAdder is PodLib {
     }
 
     /// @notice Send an MPC add request using encrypted inputs.
-    /// @param a Encrypted input a (itUint64).
-    /// @param b Encrypted input b (itUint64).
-    function add(itUint64 calldata a, itUint64 calldata b) external {
-        bytes32 requestId = PodLib.add(
+    /// @param a Encrypted input a (itUint128).
+    /// @param b Encrypted input b (itUint128).
+    function add(itUint128 calldata a, itUint128 calldata b) external {
+        bytes32 requestId = PodLib.add128(
             a,
             b,
             msg.sender,
-            MpcAdder.receiveC.selector,
+            PodAdder128.receiveC.selector,
             PodLib.onDefaultMpcError.selector
         );
         emit AddRequest(requestId);
@@ -33,14 +33,11 @@ contract MpcAdder is PodLib {
     /// @notice Receive the response and store the ciphertext result.
     /// @param data The response payload containing the ciphertext.
     function receiveC(bytes memory data) external onlyInbox {
-        _result = abi.decode(data, (ctUint64));
+        _result = abi.decode(data, (ctUint128));
     }
 
     /// @notice Return the last received ciphertext result.
-    function resultCiphertext() external view returns (ctUint64) {
+    function resultCiphertext() external view returns (ctUint128 memory) {
         return _result;
     }
 }
-
-
-

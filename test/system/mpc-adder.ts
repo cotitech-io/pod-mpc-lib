@@ -93,8 +93,8 @@ describe("MpcAdder (system)", async function () {
     assert.equal(request.errorSelector, toFunctionSelector("onDefaultMpcError(bytes32)"));
 
     // Keep mined nonces contiguous across tests by processing the request.
-    await mineRequest(ctx, "coti", BigInt(ctx.chainIds.sepolia), request, "Test1");
-    const responseRequest = await getResponseRequestBySource(ctx.contracts.inboxCoti, request.requestId, "Test1");
+    const { requestIdUsed: cotiRequestId } = await mineRequest(ctx, "coti", BigInt(ctx.chainIds.sepolia), request, "Test1");
+    const responseRequest = await getResponseRequestBySource(ctx.contracts.inboxCoti, cotiRequestId, "Test1");
     await mineRequest(ctx, "sepolia", ctx.chainIds.coti, responseRequest, "Test1");
   });
 
@@ -111,16 +111,15 @@ describe("MpcAdder (system)", async function () {
     await ctx.sepolia.publicClient.waitForTransactionReceipt({ hash: txHash, ...receiptWaitOptions });
     logStep("Test2: tx confirmed, loading latest request");
     const request = await getLatestRequest(ctx.contracts.inboxSepolia);
-    const requestId = request.requestId;
-    await mineRequest(ctx, "coti", BigInt(ctx.chainIds.sepolia), request, "Test2");
+    const { requestIdUsed: cotiRequestId } = await mineRequest(ctx, "coti", BigInt(ctx.chainIds.sepolia), request, "Test2");
     logStep("Test2: COTI processed, fetching response");
 
     let response: any;
     try {
-      response = await ctx.contracts.inboxCoti.read.getInboxResponse([requestId]);
+      response = await ctx.contracts.inboxCoti.read.getInboxResponse([cotiRequestId]);
       logStep("Test2: loaded inbox response on COTI");
     } catch (error) {
-      const inboxError = await ctx.contracts.inboxCoti.read.errors([requestId]);
+      const inboxError = await ctx.contracts.inboxCoti.read.errors([cotiRequestId]);
       const errorCode = getTupleField(inboxError, "errorCode", 1);
       const errorMessage = getTupleField(inboxError, "errorMessage", 2);
       logStep(`Test2: no response, errorCode=${errorCode} errorMessage=${errorMessage}`);
@@ -128,14 +127,14 @@ describe("MpcAdder (system)", async function () {
     }
     assert.ok(response);
 
-    const responseRequest = await getResponseRequestBySource(ctx.contracts.inboxCoti, requestId, "Test2");
+    const responseRequest = await getResponseRequestBySource(ctx.contracts.inboxCoti, cotiRequestId, "Test2");
 
     const responseRequestId = getTupleField(responseRequest, "requestId", 0);
     assert.ok(responseRequestId);
     assert.equal(Number(responseRequest.targetChainId), ctx.chainIds.sepolia);
     assert.equal(responseRequest.targetContract.toLowerCase(), ctx.contracts.mpcAdder.address.toLowerCase());
     assert.equal(responseRequest.isTwoWay, false);
-    assert.equal(responseRequest.sourceRequestId, requestId);
+    assert.equal(responseRequest.sourceRequestId, cotiRequestId);
     assert.equal(responseRequest.callbackSelector ?? "0x00000000", "0x00000000");
     assert.equal(responseRequest.errorSelector ?? "0x00000000", toFunctionSelector("onDefaultMpcError(bytes32)"));
     assert.equal(responseRequest.methodCall.selector, "0x00000000");
@@ -177,11 +176,10 @@ describe("MpcAdder (system)", async function () {
     await ctx.sepolia.publicClient.waitForTransactionReceipt({ hash: txHash, ...receiptWaitOptions });
     logStep("Test3: tx confirmed, loading latest request");
     const request = await getLatestRequest(ctx.contracts.inboxSepolia);
-    const requestId = request.requestId;
-    await mineRequest(ctx, "coti", BigInt(ctx.chainIds.sepolia), request, "Test3");
+    const { requestIdUsed: cotiRequestId } = await mineRequest(ctx, "coti", BigInt(ctx.chainIds.sepolia), request, "Test3");
     logStep("Test3: COTI processed, applying response on hardhat");
 
-    const responseRequest = await getResponseRequestBySource(ctx.contracts.inboxCoti, requestId, "Test3");
+    const responseRequest = await getResponseRequestBySource(ctx.contracts.inboxCoti, cotiRequestId, "Test3");
 
     logStep("Test3: applying response on hardhat inbox");
     await mineRequest(ctx, "sepolia", ctx.chainIds.coti, responseRequest, "Test3");

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.26;
 
-import { MpcLib } from "../../mpc/MpcLib.sol";
+import { PodLib } from "../../mpc/PodLib.sol";
 import "../../mpccodec/MpcAbiCodec.sol";
 import "../../IInbox.sol";
 import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
@@ -10,7 +10,7 @@ interface IPErc20Coti {
     function transferFrom(address from, gtUint256 calldata to, gtUint64 amount) external;
 }
 
-contract PErc20 is MpcLib {
+contract PErc20 is PodLib {
     using MpcAbiCodec for MpcAbiCodec.MpcMethodCallContext;
 
     /// @notice Create the example privacy ERC20 contract.
@@ -34,7 +34,7 @@ contract PErc20 is MpcLib {
             mpcExecutorAddress,
             methodCall,
             PErc20.updateBalanceCallback.selector,
-            MpcLib.onDefaultMpcError.selector
+            PodLib.onDefaultMpcError.selector
         );
     }
 

@@ -5,11 +5,11 @@ import "../IInbox.sol";
 import "../InboxUser.sol";
 
 /**
- * @title MpcUser
- * @notice This is the base contract for the MPC user contract. It is used to configure the MPC executor
- *         It is also used to send two-way messages to the MpcExecutor contract on the COTI side.
+ * @title PodUser
+ * @notice Base for POD contracts that talk to the inbox: configure the COTI MPC executor
+ *         and send two-way messages to MpcExecutor on the COTI side.
  */
-abstract contract MpcUser is InboxUser {
+abstract contract PodUser is InboxUser {
     event ErrorRemoteCall(bytes32 requestId, uint code, string message);
 
     address internal mpcExecutorAddress = 0x0000000000000000000000000000000000000000;

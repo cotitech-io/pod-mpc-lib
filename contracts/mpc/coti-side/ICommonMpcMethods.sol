@@ -20,4 +20,16 @@ interface ICommonMpcMethods {
     /// @param b Encrypted input b.
     /// @param cOwner Owner of the result ciphertext.
     function gt(gtUint64 a, gtUint64 b, address cOwner) external;
+
+    /// @notice Add two 128-bit encrypted values and emit/return the result to the owner.
+    /// @param a Encrypted input a (gtUint128).
+    /// @param b Encrypted input b (gtUint128).
+    /// @param cOwner Owner of the result ciphertext.
+    function add128(gtUint128 memory a, gtUint128 memory b, address cOwner) external;
+
+    /// @notice Add two 256-bit encrypted values and emit/return the result to the owner.
+    /// @param a Encrypted input a (gtUint256).
+    /// @param b Encrypted input b (gtUint256).
+    /// @param cOwner Owner of the result ciphertext.
+    function add256(gtUint256 memory a, gtUint256 memory b, address cOwner) external;
 }

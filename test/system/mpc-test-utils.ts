@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { defineChain, encodeFunctionData, toFunctionSelector, toHex } from "viem";
+import { defineChain, toFunctionSelector, toHex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { ONBOARD_CONTRACT_ADDRESS, Wallet as CotiWallet } from "@coti-io/coti-ethers";
 import { JsonRpcProvider } from "ethers";
@@ -193,14 +193,37 @@ export const getRequests = async (inbox: any, from: number, len: number): Promis
   return (raw as any[]).map(parseRequest);
 };
 
-// Mines a source request on the COTI inbox and waits for confirmation.
+/** Result of mineRequest; use requestIdUsed for getResponseRequestBySource / getInboxResponse. */
+export type MineRequestResult = {
+  txHash: `0x${string}`;
+  requestIdUsed: `0x${string}`;
+};
+
+/** Context shape required by mineRequest (64-bit, wide MPC, etc.). */
+export type MineRequestContext = {
+  contracts: { inboxCoti: any; inboxSepolia: any };
+  coti: { wallet: any; publicClient: any };
+  sepolia: { wallet: any; publicClient: any };
+};
+
+/** Options for mineRequest. */
+export type MineRequestOptions = {
+  /** Force a specific nonce instead of computing next from lastIncomingRequestId. */
+  nonceOverride?: number;
+  /** Gas limit for the batchProcessRequests tx (e.g. for 256-bit MPC on COTI testnet). */
+  gas?: bigint;
+};
+
+// Mines a source request on the target inbox and waits for confirmation.
+// Computes next expected requestId so mined nonces stay contiguous; pass nonceOverride to force a nonce.
 export const mineRequest = async (
-  ctx: TestContext,
+  ctx: MineRequestContext,
   chain: "coti" | "sepolia",
   sourceChainId: bigint,
   request: Request,
-  label: string
-): Promise<`0x${string}`> => {
+  label: string,
+  options?: MineRequestOptions
+): Promise<MineRequestResult> => {
   console.log("mineRequest", chain, sourceChainId, request, label);
   const inbox = chain === "coti" ? ctx.contracts.inboxCoti : ctx.contracts.inboxSepolia;
   const walletClient = chain === "coti" ? ctx.coti.wallet : ctx.sepolia.wallet;
@@ -209,15 +232,48 @@ export const mineRequest = async (
   logStep(`${label}: ${chainLabel} inbox wallet ${walletClient?.account?.address ?? "unknown"}`);
   const publicClient = chain === "coti" ? ctx.coti.publicClient : ctx.sepolia.publicClient;
   console.log("reading last incoming request id", sourceChainId);
-  const latestMinedRequest = await inbox.read.lastIncomingRequestId([sourceChainId]);
-  logStep(`${label}: latest mined request on ${chainLabel} is ${latestMinedRequest.toString()}`);
+  const latestMinedRequestId = await inbox.read.lastIncomingRequestId([sourceChainId]);
+  logStep(`${label}: latest mined request on ${chainLabel} is ${latestMinedRequestId.toString()}`);
+
+  // Compute next expected requestId so mined nonces stay contiguous (or use override).
+  let nextNonce: number;
+  const zeroHash =
+    "0x0000000000000000000000000000000000000000000000000000000000000000";
+  if (options?.nonceOverride !== undefined) {
+    nextNonce = options.nonceOverride;
+    logStep(`${label}: using nonce override ${nextNonce}`);
+  } else {
+    const lastId =
+      typeof latestMinedRequestId === "string"
+        ? latestMinedRequestId
+        : String(latestMinedRequestId);
+    if (!lastId || lastId === zeroHash) {
+      nextNonce = 1;
+    } else {
+      const unpacked = await inbox.read.unpackRequestId([latestMinedRequestId]);
+      const lastNonce = Number(getTupleField(unpacked, "nonce", 1));
+      nextNonce = lastNonce + 1;
+    }
+  }
+  const nextRequestId = (await inbox.read.getRequestId([
+    sourceChainId,
+    nextNonce,
+  ])) as `0x${string}`;
+  logStep(`${label}: using requestId ${nextRequestId} (nonce ${nextNonce}) for batchProcessRequests`);
+
   logStep(`${label}: calling batchProcessRequests on ${chainLabel}`);
-  const txHash = await inbox.write.batchProcessRequests(
+  const writeOptions: { account: any; gas?: bigint } = {
+    account: walletClient?.account,
+  };
+  if (options?.gas !== undefined) {
+    writeOptions.gas = options.gas;
+  }
+  const txHash = (await inbox.write.batchProcessRequests(
     [
       sourceChainId,
       [
         {
-          requestId: request.requestId,
+          requestId: nextRequestId,
           sourceContract: request.originalSender,
           targetContract: request.targetContract,
           methodCall: request.methodCall,
@@ -228,14 +284,36 @@ export const mineRequest = async (
         },
       ],
     ],
-    {
-      account: walletClient?.account,
-    }
-  );
+    writeOptions
+  )) as `0x${string}`;
   logStep(`${label}: waiting for ${chainLabel} tx ${txHash}`);
   await publicClient.waitForTransactionReceipt({ hash: txHash, ...receiptWaitOptions });
-  return txHash;
+  return { txHash, requestIdUsed: nextRequestId };
 };
+
+/** Default gas for mining 128-bit MPC requests on COTI testnet (batchProcessRequests). */
+export const DEFAULT_COTI_MINE_GAS_MPC_128 = 8_000_000n;
+/** Default gas for mining 256-bit MPC requests on COTI testnet. */
+export const DEFAULT_COTI_MINE_GAS_MPC_256 = 10_000_000n;
+
+/**
+ * Returns a mineRequest wrapper that applies a default gas limit when mining on COTI
+ * (callers can still override via options.gas).
+ */
+export function createMineRequestWithDefaultCotiGas(defaultGas: bigint) {
+  return async (
+    ctx: MineRequestContext,
+    chain: "coti" | "sepolia",
+    sourceChainId: bigint,
+    request: Request,
+    label: string,
+    options?: MineRequestOptions
+  ): Promise<MineRequestResult> => {
+    const merged: MineRequestOptions =
+      chain === "coti" ? { ...options, gas: options?.gas ?? defaultGas } : options ?? {};
+    return mineRequest(ctx, chain, sourceChainId, request, label, merged);
+  };
+}
 
 // Loads the response request linked to a source request id.
 export const getResponseRequestBySource = async (
@@ -285,7 +363,7 @@ export const buildEncryptedInput = async (
     typeof inputText.signature === "string"
       ? (inputText.signature as `0x${string}`)
       : toHex(inputText.signature as any);
-  const ciphertext = normalizeCiphertext(inputText.ciphertext);
+  const ciphertext = normalizeCiphertextInternal(inputText.ciphertext);
   return {
     ciphertext,
     signature,
@@ -299,6 +377,201 @@ export const decodeCtUint64 = (encryptedResult: unknown): bigint => {
     getTupleField(encryptedResult, "value", 0) ??
     (encryptedResult as bigint)
   );
+};
+
+/**
+ * Split a 128-bit value into two 64-bit parts (high, low).
+ */
+export const split128To64Parts = (value: bigint): [bigint, bigint] => {
+  const mask64 = (1n << 64n) - 1n;
+  const low = value & mask64;
+  const high = (value >> 64n) & mask64;
+  return [high, low];
+};
+
+/**
+ * Combine two 64-bit parts into a 128-bit value.
+ */
+export const combine64PartsTo128 = (high: bigint, low: bigint): bigint => {
+  return (high << 64n) | low;
+};
+
+/**
+ * Split a 256-bit value into four 64-bit parts (high.high, high.low, low.high, low.low).
+ */
+export const split256To64Parts = (value: bigint): [bigint, bigint, bigint, bigint] => {
+  const mask64 = (1n << 64n) - 1n;
+  const lowLow = value & mask64;
+  const lowHigh = (value >> 64n) & mask64;
+  const highLow = (value >> 128n) & mask64;
+  const highHigh = (value >> 192n) & mask64;
+  return [highHigh, highLow, lowHigh, lowLow];
+};
+
+/**
+ * Combine four 64-bit parts into a 256-bit value.
+ */
+export const combine64PartsTo256 = (
+  highHigh: bigint,
+  highLow: bigint,
+  lowHigh: bigint,
+  lowLow: bigint
+): bigint => {
+  return (highHigh << 192n) | (highLow << 128n) | (lowHigh << 64n) | lowLow;
+};
+
+// Encrypt a 128-bit value as an itUint128 structure (2 x 64-bit parts, bytes[2] signature).
+export const buildEncryptedInput128 = async (
+  ctx: Pick<TestContext, "crypto" | "contracts">,
+  value: bigint
+): Promise<{
+  ciphertext: { high: bigint; low: bigint };
+  signature: [`0x${string}`, `0x${string}`];
+}> => {
+  const functionSelector = toFunctionSelector(
+    "batchProcessRequests(uint256,(bytes32,address,address,(bytes4,bytes,bytes8[],bytes32[]),bytes4,bytes4,bool,bytes32)[])"
+  );
+
+  const [high, low] = split128To64Parts(value);
+
+  const encryptPart = async (part: bigint) => {
+    const inputText = await ctx.crypto.cotiEncryptWallet.encryptValue(
+      part,
+      ctx.contracts.inboxCoti.address,
+      functionSelector
+    );
+    const signature =
+      typeof inputText.signature === "string"
+        ? (inputText.signature as `0x${string}`)
+        : toHex(inputText.signature as any);
+    const ciphertext = normalizeCiphertextInternal(inputText.ciphertext);
+    return { ciphertext, signature };
+  };
+
+  const encHigh = await encryptPart(high);
+  const encLow = await encryptPart(low);
+
+  return {
+    ciphertext: { high: encHigh.ciphertext, low: encLow.ciphertext },
+    signature: [encHigh.signature, encLow.signature],
+  };
+};
+
+// Decode a ctUint128 structure into its 2 component ciphertext values.
+export const decodeCtUint128 = (
+  encryptedResult: unknown
+): { high: bigint; low: bigint } => {
+  const high = getTupleField(encryptedResult, "high", 0);
+  const low = getTupleField(encryptedResult, "low", 1);
+  return { high: BigInt(high ?? 0), low: BigInt(low ?? 0) };
+};
+
+// Decrypt a ctUint128 result into a 128-bit value.
+export const decryptUint128 = (
+  encryptedResult: unknown,
+  userKey: string,
+  decryptFn: (ct: bigint, key: string) => bigint
+): bigint => {
+  const { high, low } = decodeCtUint128(encryptedResult);
+  const decHigh = decryptFn(high, userKey);
+  const decLow = decryptFn(low, userKey);
+  return combine64PartsTo128(decHigh, decLow);
+};
+
+// Encrypt a 256-bit value as an itUint256 structure.
+// This encrypts 4 separate 64-bit values and returns the structured type.
+export const buildEncryptedInput256 = async (
+  ctx: Pick<TestContext, "crypto" | "contracts">,
+  value: bigint
+): Promise<{
+  ciphertext: {
+    high: { high: bigint; low: bigint };
+    low: { high: bigint; low: bigint };
+  };
+  signature: [[`0x${string}`, `0x${string}`], [`0x${string}`, `0x${string}`]];
+}> => {
+  const functionSelector = toFunctionSelector(
+    "batchProcessRequests(uint256,(bytes32,address,address,(bytes4,bytes,bytes8[],bytes32[]),bytes4,bytes4,bool,bytes32)[])"
+  );
+
+  // Split the 256-bit value into 4 x 64-bit parts
+  const [highHigh, highLow, lowHigh, lowLow] = split256To64Parts(value);
+
+  // Encrypt each 64-bit part
+  const encryptPart = async (part: bigint) => {
+    const inputText = await ctx.crypto.cotiEncryptWallet.encryptValue(
+      part,
+      ctx.contracts.inboxCoti.address,
+      functionSelector
+    );
+    const signature =
+      typeof inputText.signature === "string"
+        ? (inputText.signature as `0x${string}`)
+        : toHex(inputText.signature as any);
+    const ciphertext = normalizeCiphertextInternal(inputText.ciphertext);
+    return { ciphertext, signature };
+  };
+
+  const encHighHigh = await encryptPart(highHigh);
+  const encHighLow = await encryptPart(highLow);
+  const encLowHigh = await encryptPart(lowHigh);
+  const encLowLow = await encryptPart(lowLow);
+
+  return {
+    ciphertext: {
+      high: { high: encHighHigh.ciphertext, low: encHighLow.ciphertext },
+      low: { high: encLowHigh.ciphertext, low: encLowLow.ciphertext },
+    },
+    signature: [
+      [encHighHigh.signature, encHighLow.signature],
+      [encLowHigh.signature, encLowLow.signature],
+    ],
+  };
+};
+
+// Decode a ctUint256 structure into its 4 component ciphertext values.
+export const decodeCtUint256 = (
+  encryptedResult: unknown
+): { highHigh: bigint; highLow: bigint; lowHigh: bigint; lowLow: bigint } => {
+  const high = getTupleField(encryptedResult, "high", 0);
+  const low = getTupleField(encryptedResult, "low", 1);
+
+  const highHigh = getTupleField(high, "high", 0);
+  const highLow = getTupleField(high, "low", 1);
+  const lowHigh = getTupleField(low, "high", 0);
+  const lowLow = getTupleField(low, "low", 1);
+
+  return { highHigh, highLow, lowHigh, lowLow };
+};
+
+// Decrypt a ctUint256 result into a 256-bit value.
+export const decryptUint256 = (
+  encryptedResult: unknown,
+  userKey: string,
+  decryptFn: (ct: bigint, key: string) => bigint
+): bigint => {
+  const { highHigh, highLow, lowHigh, lowLow } = decodeCtUint256(encryptedResult);
+
+  const decHighHigh = decryptFn(highHigh, userKey);
+  const decHighLow = decryptFn(highLow, userKey);
+  const decLowHigh = decryptFn(lowHigh, userKey);
+  const decLowLow = decryptFn(lowLow, userKey);
+
+  return combine64PartsTo256(decHighHigh, decHighLow, decLowHigh, decLowLow);
+};
+
+// Normalizes ciphertext into a bigint.
+const normalizeCiphertextInternal = (ciphertext: unknown): bigint => {
+  if (typeof ciphertext === "bigint") {
+    return ciphertext;
+  }
+  if (ciphertext && typeof ciphertext === "object") {
+    const maybeValue = (ciphertext as { value?: bigint[] }).value;
+    if (Array.isArray(maybeValue) && maybeValue.length > 0) {
+      return BigInt(maybeValue[0]);
+    }
+  }
+  return BigInt(ciphertext as any);
 };
 
 // Builds the shared MPC test context with deployments and wallets.
@@ -460,6 +733,206 @@ export const setupContext = async (params: {
   };
 };
 
+/** Context for PodAdder128 / PodAdder256 system tests (same shape as TestContext, different adder contract). */
+export type TestContextWideMpc = {
+  sepolia: TestContext["sepolia"];
+  coti: TestContext["coti"];
+  contracts: Omit<TestContext["contracts"], "mpcAdder" | "mpcAdderAsCoti"> & {
+    mpcAdder: any;
+    mpcAdderAsCoti: any;
+  };
+  crypto: TestContext["crypto"];
+  chainIds: TestContext["chainIds"];
+};
+
+/** Configuration for {@link setupContextWideMpc} (128 vs 256 adder + deployments file + env keys). */
+export type MpcWideSetupConfig = {
+  podAdderContractName: "PodAdder128" | "PodAdder256";
+  cotiDeploymentsFile: string;
+  envHardhatMpcAdder: string;
+  envSepoliaMpcAdder: string;
+};
+
+/**
+ * Deploy/reuse Inbox + PodAdder128 or PodAdder256 on Hardhat and Inbox + MpcExecutor on COTI.
+ * Same flow as {@link setupContext} but parameterized for wide MPC adder contracts.
+ */
+export const setupContextWideMpc = async (
+  params: { sepoliaViem: any; cotiViem: any },
+  config: MpcWideSetupConfig
+): Promise<TestContextWideMpc> => {
+  requireEnv("COTI_TESTNET_RPC_URL");
+  requirePrivateKey("COTI_TESTNET_PRIVATE_KEY");
+
+  const sepoliaChainId = parseInt(process.env.HARDHAT_CHAIN_ID || "31337");
+  const cotiChainId = BigInt(parseInt(process.env.COTI_TESTNET_CHAIN_ID || "7082400"));
+  const cotiDeploymentsPath =
+    process.env.COTI_DEPLOYMENTS_PATH ||
+    path.resolve(process.cwd(), "deployments", config.cotiDeploymentsFile);
+
+  logStep("Preparing chain clients");
+  const cotiChain = defineChain({
+    id: Number(cotiChainId),
+    name: "COTI Testnet",
+    nativeCurrency: { name: "COTI", symbol: "COTI", decimals: 18 },
+    rpcUrls: {
+      default: { http: [requireEnv("COTI_TESTNET_RPC_URL")] },
+    },
+  });
+
+  const sepoliaPublicClient = await params.sepoliaViem.getPublicClient();
+  const cotiPublicClient = await params.cotiViem.getPublicClient({ chain: cotiChain });
+  const [sepoliaWallet] = await params.sepoliaViem.getWalletClients();
+  const cotiPrivateKeyMain = normalizePrivateKey(requirePrivateKey("COTI_TESTNET_PRIVATE_KEY"));
+  const cotiAccount = privateKeyToAccount(cotiPrivateKeyMain as `0x${string}`);
+  const hardhatCotiWallet = await params.sepoliaViem.getWalletClient(cotiAccount.address);
+  const cotiWallet = await params.cotiViem.getWalletClient(cotiAccount.address, { chain: cotiChain });
+
+  const inboxSepoliaAddress =
+    envOrEmpty("HARDHAT_INBOX_ADDRESS") || envOrEmpty("SEPOLIA_INBOX_ADDRESS");
+  const mpcAdderAddress =
+    envOrEmpty(config.envHardhatMpcAdder) || envOrEmpty(config.envSepoliaMpcAdder);
+
+  const cachedCoti = await readCotiDeployments(cotiDeploymentsPath);
+  const inboxCotiAddress = envOrEmpty("COTI_INBOX_ADDRESS") || cachedCoti.inbox || "";
+  const mpcExecutorAddress =
+    envOrEmpty("COTI_MPC_EXECUTOR_ADDRESS") || cachedCoti.mpcExecutor || "";
+
+  const reuseSepolia = !!(inboxSepoliaAddress && mpcAdderAddress);
+  const reuseCoti =
+    envOrEmpty("COTI_REUSE_CONTRACTS").toLowerCase() === "true" &&
+    !!inboxCotiAddress &&
+    !!mpcExecutorAddress;
+
+  let inboxSepolia: any;
+  let mpcAdder: any;
+  if (reuseSepolia) {
+    logStep(
+      `Reusing Hardhat contracts: Inbox=${inboxSepoliaAddress} ${config.podAdderContractName}=${mpcAdderAddress}`
+    );
+    inboxSepolia = await params.sepoliaViem.getContractAt("Inbox", inboxSepoliaAddress as `0x${string}`);
+    mpcAdder = await params.sepoliaViem.getContractAt(
+      config.podAdderContractName,
+      mpcAdderAddress as `0x${string}`
+    );
+  } else {
+    logStep(`Deploying Hardhat Inbox + ${config.podAdderContractName}`);
+    inboxSepolia = await params.sepoliaViem.deployContract("Inbox", [BigInt(sepoliaChainId)]);
+    mpcAdder = await params.sepoliaViem.deployContract(config.podAdderContractName, [
+      inboxSepolia.address,
+    ]);
+  }
+
+  const mpcAdderAsCoti = await params.sepoliaViem.getContractAt(
+    config.podAdderContractName,
+    mpcAdder.address,
+    {
+      client: {
+        public: sepoliaPublicClient,
+        wallet: hardhatCotiWallet,
+      },
+    }
+  );
+
+  let inboxCoti: any;
+  let mpcExecutor: any;
+  if (reuseCoti) {
+    logStep(`Reusing COTI contracts: Inbox=${inboxCotiAddress} MpcExecutor=${mpcExecutorAddress}`);
+    inboxCoti = await params.cotiViem.getContractAt("Inbox", inboxCotiAddress as `0x${string}`, {
+      client: { public: cotiPublicClient, wallet: cotiWallet },
+    });
+    mpcExecutor = await params.cotiViem.getContractAt(
+      "MpcExecutor",
+      mpcExecutorAddress as `0x${string}`,
+      {
+        client: { public: cotiPublicClient, wallet: cotiWallet },
+      }
+    );
+  } else {
+    logStep("Deploying COTI Inbox + MpcExecutor");
+    inboxCoti = await params.cotiViem.deployContract(
+      "Inbox",
+      [cotiChainId],
+      {
+        client: {
+          public: cotiPublicClient,
+          wallet: cotiWallet,
+        },
+      } as any
+    );
+    mpcExecutor = await params.cotiViem.deployContract(
+      "MpcExecutor",
+      [inboxCoti.address],
+      {
+        client: {
+          public: cotiPublicClient,
+          wallet: cotiWallet,
+        },
+      } as any
+    );
+    await writeCotiDeployments(cotiDeploymentsPath, {
+      inbox: inboxCoti.address,
+      mpcExecutor: mpcExecutor.address,
+    });
+    logStep(`Saved COTI deployments to ${cotiDeploymentsPath}`);
+  }
+  logStep(`COTI inbox address in use: ${inboxCoti.address}`);
+
+  if (!reuseSepolia || !reuseCoti) {
+    logStep("Configuring COTI executor + miner");
+    await mpcAdder.write.configureCoti([mpcExecutor.address, cotiChainId]);
+    const cotiOwner = await inboxCoti.read.owner();
+    logStep(`COTI inbox owner ${cotiOwner}`);
+    const alreadyMiner = await inboxCoti.read.isMiner([cotiWallet.account.address]);
+    if (!alreadyMiner) {
+      logStep(`Adding COTI miner ${cotiWallet.account.address}`);
+      const addMinerTx = await inboxCoti.write.addMiner([cotiWallet.account.address], {
+        account: cotiWallet.account,
+      });
+      await cotiPublicClient.waitForTransactionReceipt({ hash: addMinerTx, ...receiptWaitOptions });
+      const confirmedMiner = await inboxCoti.read.isMiner([cotiWallet.account.address]);
+      logStep(`COTI miner confirmed=${confirmedMiner}`);
+    } else {
+      logStep("COTI miner already configured");
+    }
+  } else {
+    logStep("Skipping configureCoti/addMiner (reused contracts)");
+  }
+
+  const sepoliaMiner = sepoliaWallet.account.address;
+  const sepoliaAlreadyMiner = await inboxSepolia.read.isMiner([sepoliaMiner]);
+  if (!sepoliaAlreadyMiner) {
+    logStep(`Adding Sepolia miner ${sepoliaMiner}`);
+    await inboxSepolia.write.addMiner([sepoliaMiner]);
+  } else {
+    logStep("Sepolia miner already configured");
+  }
+
+  const cotiRpcUrl = requireEnv("COTI_TESTNET_RPC_URL");
+  const cotiProvider = new JsonRpcProvider(cotiRpcUrl) as any;
+  const cotiPrivateKey = requirePrivateKey("COTI_TESTNET_PRIVATE_KEY");
+  const onboardAddress = process.env.COTI_ONBOARD_CONTRACT_ADDRESS || ONBOARD_CONTRACT_ADDRESS;
+  const userKey = await onboardUser(cotiPrivateKey, cotiRpcUrl, onboardAddress);
+  const cotiEncryptWallet = new CotiWallet(cotiPrivateKey, cotiProvider as any);
+  cotiEncryptWallet.setAesKey(userKey);
+
+  logStep("Setup complete");
+
+  return {
+    sepolia: { publicClient: sepoliaPublicClient, wallet: sepoliaWallet },
+    coti: { publicClient: cotiPublicClient, wallet: cotiWallet },
+    contracts: {
+      inboxSepolia,
+      inboxCoti,
+      mpcAdder,
+      mpcAdderAsCoti,
+      mpcExecutor,
+    },
+    crypto: { userKey, cotiEncryptWallet },
+    chainIds: { sepolia: sepoliaChainId, coti: cotiChainId },
+  };
+};
+
 export async function getCotiCrypto(privateKey: string, rpcUrl: string, keyEnv: string) {
   const cotiProvider = new JsonRpcProvider(rpcUrl) as any;
   const normalizedKey = normalizePrivateKey(privateKey);
@@ -469,20 +942,6 @@ export async function getCotiCrypto(privateKey: string, rpcUrl: string, keyEnv: 
   cotiEncryptWallet.setAesKey(userKey);
   return { cotiEncryptWallet, userKey };
 }
-
-// Normalizes ciphertext into a bigint for MPC encoding.
-const normalizeCiphertext = (ciphertext: unknown): bigint => {
-  if (typeof ciphertext === "bigint") {
-    return ciphertext;
-  }
-  if (ciphertext && typeof ciphertext === "object") {
-    const maybeValue = (ciphertext as { value?: bigint[] }).value;
-    if (Array.isArray(maybeValue) && maybeValue.length > 0) {
-      return BigInt(maybeValue[0]);
-    }
-  }
-  return BigInt(ciphertext as any);
-};
 
 // Reads cached COTI deployments from disk.
 const readCotiDeployments = async (deploymentsPath: string) => {

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.26;
 
-import { MpcLib } from "../../mpc/MpcLib.sol";
+import { PodLib } from "../../mpc/PodLib.sol";
 import "../../mpccodec/MpcAbiCodec.sol";
 import "../../IInbox.sol";
 import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 
-contract Millionaire is MpcLib {
+contract Millionaire is PodLib {
     event RevealResult(bytes32 indexed requestId, ctBool result);
 
     constructor(address _inbox) {

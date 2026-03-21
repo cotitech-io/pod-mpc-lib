@@ -23,7 +23,7 @@ contract MpcAbiCodecHarness {
         ctx = ctx.addArgument(a);
         ctx = ctx.addArgument(b);
         ctx = ctx.addArgument(c);
-        ctx.methodCall.selector = selector;
+        ctx.mpcMethodCall.selector = selector;
         return MpcAbiCodec.reEncodeWithGt(ctx.build());
     }
 
@@ -49,7 +49,7 @@ contract MpcAbiCodecHarness {
         ctx = ctx.addArgument(nums);
         ctx = ctx.addArgument(addrs);
         ctx = ctx.addArgument(b32s);
-        ctx.methodCall.selector = selector;
+        ctx.mpcMethodCall.selector = selector;
         return MpcAbiCodec.reEncodeWithGt(ctx.build());
     }
 
@@ -75,7 +75,7 @@ contract MpcAbiCodecHarness {
         ctx = ctx.addArgument(s);
         ctx = ctx.addArgument(c);
         ctx = ctx.addArgument(data);
-        ctx.methodCall.selector = selector;
+        ctx.mpcMethodCall.selector = selector;
         return MpcAbiCodec.reEncodeWithGt(ctx.build());
     }
 
@@ -135,7 +135,7 @@ contract MpcAbiCodecHarness {
             itString memory itS = _buildItString(stringCts, stringSigs);
             ctx = ctx.addArgument(itS);
         }
-        ctx.methodCall.selector = selector;
+        ctx.mpcMethodCall.selector = selector;
         return MpcAbiCodec.reEncodeWithGt(ctx.build());
     }
 

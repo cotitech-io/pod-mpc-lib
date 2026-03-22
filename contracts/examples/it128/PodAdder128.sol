@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 import "../../mpc/PodLib.sol";
+import "../../mpc/PodLibBase.sol";
 
 
 contract PodAdder128 is PodLib {
@@ -20,12 +21,12 @@ contract PodAdder128 is PodLib {
     /// @param a Encrypted input a (itUint128).
     /// @param b Encrypted input b (itUint128).
     function add(itUint128 calldata a, itUint128 calldata b) external {
-        bytes32 requestId = PodLib.add128(
+        bytes32 requestId = add128(
             a,
             b,
             msg.sender,
             PodAdder128.receiveC.selector,
-            PodLib.onDefaultMpcError.selector
+            PodLibBase.onDefaultMpcError.selector
         );
         emit AddRequest(requestId);
     }

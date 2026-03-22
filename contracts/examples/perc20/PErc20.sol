@@ -2,6 +2,7 @@
 pragma solidity ^0.8.26;
 
 import { PodLib } from "../../mpc/PodLib.sol";
+import { PodLibBase } from "../../mpc/PodLibBase.sol";
 import "../../mpccodec/MpcAbiCodec.sol";
 import "../../IInbox.sol";
 import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
@@ -34,7 +35,7 @@ contract PErc20 is PodLib {
             mpcExecutorAddress,
             methodCall,
             PErc20.updateBalanceCallback.selector,
-            PodLib.onDefaultMpcError.selector
+            PodLibBase.onDefaultMpcError.selector
         );
     }
 

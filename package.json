@@ -10,6 +10,7 @@
     "deploy:examples:source": "hardhat run scripts/deploy-examples-source.ts",
     "deploy:examples:coti": "hardhat run scripts/deploy-examples-coti.ts",
     "test": "hardhat test",
+    "test:executor-coti": "hardhat test test/system/mpc-executor-coti.ts",
     "test:inbox": "hardhat test test/Inbox.ts",
     "relay": "tsx scripts/relay-node.ts"
   },

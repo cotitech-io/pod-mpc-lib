@@ -4,83 +4,320 @@ pragma solidity ^0.8.26;
 import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 
 import "../../InboxUser.sol";
-import "./ICommonMpcMethods.sol";
+import "./IPodExecutorOps.sol";
 
 /**
  * @title MpcExecutor
- * @notice This is the executor contract for common MpcMethods that can be called
- *         remotely from a client chain.
+ * @notice Executor for POD MPC on COTI: 64/128/256-bit ops (checked arithmetic where applicable).
  */
-contract MpcExecutor is ICommonMpcMethods, InboxUser {
+contract MpcExecutor is InboxUser, IPodExecutor64, IPodExecutor128, IPodExecutor256 {
     event GtResult(ctBool result, address cOwner);
     event AddResult(ctUint64 result, address cOwner);
     event Add128Result(ctUint128 result, address cOwner);
     event Add256Result(ctUint256 result, address cOwner);
-    event ValidateResult(ctUint64 result, address cOwner);
 
-    /// @notice Create an MPC executor bound to an inbox.
-    /// @param _inbox The inbox contract address.
     constructor(address _inbox) {
         setInbox(_inbox);
     }
 
-    /// @notice Perform MPC add and respond with the result ciphertext.
-    /// @dev This function is called remotely by the Inbox.
-    /// @param gtA Encrypted a (gtUint64).
-    /// @param gtB Encrypted b (gtUint64).
-    /// @param cOwner The owner of the result ciphertext.
-    function add(gtUint64 gtA, gtUint64 gtB, address cOwner) external onlyInbox {
-        gtUint64 gtC = MpcCore.add(gtA, gtB);
-        utUint64 memory combined = MpcCore.offBoardCombined(gtC, cOwner);
+    // --- IPodExecutor64 ---
 
-        emit AddResult(combined.userCiphertext, cOwner);
-
-        bytes memory data = abi.encode(combined.userCiphertext);
-        inbox.respond(data);
+    function add64(gtUint64 gtA, gtUint64 gtB, address cOwner) external onlyInbox {
+        gtUint64 gtC = MpcCore.checkedAdd(gtA, gtB);
+        _emitRespondU64(gtC, cOwner, true);
     }
 
-    /// @notice Perform MPC gt and respond with the result ciphertext.
-    /// @dev This function is called remotely by the Inbox.
-    /// @param gtA Encrypted a (gtUint64).
-    /// @param gtB Encrypted b (gtUint64).
-    /// @param cOwner The owner of the result ciphertext.
-    function gt(gtUint64 gtA, gtUint64 gtB, address cOwner) external onlyInbox {
-        gtBool gtC = MpcCore.gt(gtA, gtB);
-        utBool memory combined = MpcCore.offBoardCombined(gtC, cOwner);
-
-        emit GtResult(combined.userCiphertext, cOwner);
-
-        bytes memory data = abi.encode(combined.userCiphertext);
-        inbox.respond(data);
+    function sub64(gtUint64 a, gtUint64 b, address cOwner) external onlyInbox {
+        _emitRespondU64(MpcCore.checkedSub(a, b), cOwner, false);
     }
 
-    /// @notice Perform MPC add on 128-bit values and respond with the result ciphertext.
-    /// @dev This function is called remotely by the Inbox.
-    /// @param gtA Encrypted a (gtUint128).
-    /// @param gtB Encrypted b (gtUint128).
-    /// @param cOwner The owner of the result ciphertext.
+    function mul64(gtUint64 a, gtUint64 b, address cOwner) external onlyInbox {
+        _emitRespondU64(MpcCore.checkedMul(a, b), cOwner, false);
+    }
+
+    function div64(gtUint64 a, gtUint64 b, address cOwner) external onlyInbox {
+        _emitRespondU64(MpcCore.div(a, b), cOwner, false);
+    }
+
+    function rem64(gtUint64 a, gtUint64 b, address cOwner) external onlyInbox {
+        _emitRespondU64(MpcCore.rem(a, b), cOwner, false);
+    }
+
+    function and64(gtUint64 a, gtUint64 b, address cOwner) external onlyInbox {
+        _emitRespondU64(MpcCore.and(a, b), cOwner, false);
+    }
+
+    function or64(gtUint64 a, gtUint64 b, address cOwner) external onlyInbox {
+        _emitRespondU64(MpcCore.or(a, b), cOwner, false);
+    }
+
+    function xor64(gtUint64 a, gtUint64 b, address cOwner) external onlyInbox {
+        _emitRespondU64(MpcCore.xor(a, b), cOwner, false);
+    }
+
+    function min64(gtUint64 a, gtUint64 b, address cOwner) external onlyInbox {
+        _emitRespondU64(MpcCore.min(a, b), cOwner, false);
+    }
+
+    function max64(gtUint64 a, gtUint64 b, address cOwner) external onlyInbox {
+        _emitRespondU64(MpcCore.max(a, b), cOwner, false);
+    }
+
+    function eq64(gtUint64 a, gtUint64 b, address cOwner) external onlyInbox {
+        _emitRespondBool(MpcCore.eq(a, b), cOwner);
+    }
+
+    function ne64(gtUint64 a, gtUint64 b, address cOwner) external onlyInbox {
+        _emitRespondBool(MpcCore.ne(a, b), cOwner);
+    }
+
+    function ge64(gtUint64 a, gtUint64 b, address cOwner) external onlyInbox {
+        _emitRespondBool(MpcCore.ge(a, b), cOwner);
+    }
+
+    function gt64(gtUint64 a, gtUint64 b, address cOwner) external onlyInbox {
+        _emitRespondBool(MpcCore.gt(a, b), cOwner);
+    }
+
+    function le64(gtUint64 a, gtUint64 b, address cOwner) external onlyInbox {
+        _emitRespondBool(MpcCore.le(a, b), cOwner);
+    }
+
+    function lt64(gtUint64 a, gtUint64 b, address cOwner) external onlyInbox {
+        _emitRespondBool(MpcCore.lt(a, b), cOwner);
+    }
+
+    /// @dev Plaintext `itBool` from user `encryptValue(0|1)` matches SBOOL validation but mux bit sense
+    ///      is inverted vs SDK plaintext; swap branches so `1` selects `a` and `0` selects `b`.
+    function mux64(gtBool bit, gtUint64 a, gtUint64 b, address cOwner) external onlyInbox {
+        _emitRespondU64(MpcCore.mux(bit, b, a), cOwner, false);
+    }
+
+    function shl64(gtUint64 a, uint8 s, address cOwner) external onlyInbox {
+        _emitRespondU64(MpcCore.shl(a, s), cOwner, false);
+    }
+
+    function shr64(gtUint64 a, uint8 s, address cOwner) external onlyInbox {
+        _emitRespondU64(MpcCore.shr(a, s), cOwner, false);
+    }
+
+    /// @dev Returns `abi.encode(uint256)` plaintext (not user ciphertext).
+    function rand64(address) external onlyInbox {
+        uint64 v = MpcCore.decrypt(MpcCore.rand64());
+        _respondPlainUint256(uint256(v));
+    }
+
+    /// @dev Returns `abi.encode(uint256)` plaintext (not user ciphertext).
+    function randBoundedBits64(uint8 numBits, address) external onlyInbox {
+        uint64 v = MpcCore.decrypt(MpcCore.randBoundedBits64(numBits));
+        _respondPlainUint256(uint256(v));
+    }
+
+    // --- IPodExecutor128 ---
+
     function add128(gtUint128 memory gtA, gtUint128 memory gtB, address cOwner) external onlyInbox {
-        gtUint128 memory gtC = MpcCore.add(gtA, gtB);
-        utUint128 memory combined = MpcCore.offBoardCombined(gtC, cOwner);
-
-        emit Add128Result(combined.userCiphertext, cOwner);
-
-        bytes memory data = abi.encode(combined.userCiphertext);
-        inbox.respond(data);
+        gtUint128 memory gtC = MpcCore.checkedAdd(gtA, gtB);
+        _emitRespondU128(gtC, cOwner, true);
     }
 
-    /// @notice Perform MPC add on 256-bit values and respond with the result ciphertext.
-    /// @dev This function is called remotely by the Inbox.
-    /// @param gtA Encrypted a (gtUint256).
-    /// @param gtB Encrypted b (gtUint256).
-    /// @param cOwner The owner of the result ciphertext.
+    function sub128(gtUint128 memory a, gtUint128 memory b, address cOwner) external onlyInbox {
+        _emitRespondU128(MpcCore.checkedSub(a, b), cOwner, false);
+    }
+
+    /// @dev Uses wrapping `MpcCore.mul` (mod 2^128). `checkedMul` ends with `checkedSub(0, overflowLimbs)` which
+    ///      can revert on COTI when high limbs are secret-shared zero even if the true product fits in 128 bits.
+    function mul128(gtUint128 memory a, gtUint128 memory b, address cOwner) external onlyInbox {
+        _emitRespondU128(MpcCore.mul(a, b), cOwner, false);
+    }
+
+    function and128(gtUint128 memory a, gtUint128 memory b, address cOwner) external onlyInbox {
+        _emitRespondU128(MpcCore.and(a, b), cOwner, false);
+    }
+
+    function or128(gtUint128 memory a, gtUint128 memory b, address cOwner) external onlyInbox {
+        _emitRespondU128(MpcCore.or(a, b), cOwner, false);
+    }
+
+    function xor128(gtUint128 memory a, gtUint128 memory b, address cOwner) external onlyInbox {
+        _emitRespondU128(MpcCore.xor(a, b), cOwner, false);
+    }
+
+    function min128(gtUint128 memory a, gtUint128 memory b, address cOwner) external onlyInbox {
+        _emitRespondU128(MpcCore.min(a, b), cOwner, false);
+    }
+
+    function max128(gtUint128 memory a, gtUint128 memory b, address cOwner) external onlyInbox {
+        _emitRespondU128(MpcCore.max(a, b), cOwner, false);
+    }
+
+    function eq128(gtUint128 memory a, gtUint128 memory b, address cOwner) external onlyInbox {
+        _emitRespondBool(MpcCore.eq(a, b), cOwner);
+    }
+
+    function ne128(gtUint128 memory a, gtUint128 memory b, address cOwner) external onlyInbox {
+        _emitRespondBool(MpcCore.ne(a, b), cOwner);
+    }
+
+    function ge128(gtUint128 memory a, gtUint128 memory b, address cOwner) external onlyInbox {
+        _emitRespondBool(MpcCore.ge(a, b), cOwner);
+    }
+
+    function gt128(gtUint128 memory a, gtUint128 memory b, address cOwner) external onlyInbox {
+        _emitRespondBool(MpcCore.gt(a, b), cOwner);
+    }
+
+    function le128(gtUint128 memory a, gtUint128 memory b, address cOwner) external onlyInbox {
+        _emitRespondBool(MpcCore.le(a, b), cOwner);
+    }
+
+    function lt128(gtUint128 memory a, gtUint128 memory b, address cOwner) external onlyInbox {
+        _emitRespondBool(MpcCore.lt(a, b), cOwner);
+    }
+
+    /// @dev See `mux64` — same `b,a` swap for client `itBool` ciphertexts.
+    function mux128(gtBool bit, gtUint128 memory a, gtUint128 memory b, address cOwner) external onlyInbox {
+        _emitRespondU128(MpcCore.mux(bit, b, a), cOwner, false);
+    }
+
+    function shl128(gtUint128 memory a, uint8 s, address cOwner) external onlyInbox {
+        _emitRespondU128(MpcCore.shl(a, s), cOwner, false);
+    }
+
+    function shr128(gtUint128 memory a, uint8 s, address cOwner) external onlyInbox {
+        _emitRespondU128(MpcCore.shr(a, s), cOwner, false);
+    }
+
+    /// @dev Returns `abi.encode(uint256)` plaintext (not user ciphertext).
+    function rand128(address) external onlyInbox {
+        uint128 v = MpcCore.decrypt(MpcCore.rand128());
+        _respondPlainUint256(uint256(v));
+    }
+
+    /// @dev Returns `abi.encode(uint256)` plaintext (not user ciphertext).
+    function randBoundedBits128(uint8 numBits, address) external onlyInbox {
+        uint128 v = MpcCore.decrypt(MpcCore.randBoundedBits128(numBits));
+        _respondPlainUint256(uint256(v));
+    }
+
+    // --- IPodExecutor256 ---
+
     function add256(gtUint256 memory gtA, gtUint256 memory gtB, address cOwner) external onlyInbox {
-        gtUint256 memory gtC = MpcCore.add(gtA, gtB);
-        utUint256 memory combined = MpcCore.offBoardCombined(gtC, cOwner);
+        gtUint256 memory gtC = MpcCore.checkedAdd(gtA, gtB);
+        _emitRespondU256(gtC, cOwner, true);
+    }
 
-        emit Add256Result(combined.userCiphertext, cOwner);
+    function sub256(gtUint256 memory a, gtUint256 memory b, address cOwner) external onlyInbox {
+        _emitRespondU256(MpcCore.checkedSub(a, b), cOwner, false);
+    }
 
-        bytes memory data = abi.encode(combined.userCiphertext);
-        inbox.respond(data);
+    /// @dev Wrapping multiply mod 2^256 via `MpcCore.mul`. On COTI, use `MpcExecutorCotiTest` + `MpcExecutorCotiProxyInbox`
+    ///      (system test) to exercise this path with a minimal inbox `respond` stub.
+    function mul256(gtUint256 memory a, gtUint256 memory b, address cOwner) external onlyInbox {
+        _emitRespondU256(MpcCore.mul(a, b), cOwner, false);
+    }
+
+    function and256(gtUint256 memory a, gtUint256 memory b, address cOwner) external onlyInbox {
+        _emitRespondU256(MpcCore.and(a, b), cOwner, false);
+    }
+
+    function or256(gtUint256 memory a, gtUint256 memory b, address cOwner) external onlyInbox {
+        _emitRespondU256(MpcCore.or(a, b), cOwner, false);
+    }
+
+    function xor256(gtUint256 memory a, gtUint256 memory b, address cOwner) external onlyInbox {
+        _emitRespondU256(MpcCore.xor(a, b), cOwner, false);
+    }
+
+    function min256(gtUint256 memory a, gtUint256 memory b, address cOwner) external onlyInbox {
+        _emitRespondU256(MpcCore.min(a, b), cOwner, false);
+    }
+
+    function max256(gtUint256 memory a, gtUint256 memory b, address cOwner) external onlyInbox {
+        _emitRespondU256(MpcCore.max(a, b), cOwner, false);
+    }
+
+    function eq256(gtUint256 memory a, gtUint256 memory b, address cOwner) external onlyInbox {
+        _emitRespondBool(MpcCore.eq(a, b), cOwner);
+    }
+
+    function ne256(gtUint256 memory a, gtUint256 memory b, address cOwner) external onlyInbox {
+        _emitRespondBool(MpcCore.ne(a, b), cOwner);
+    }
+
+    function ge256(gtUint256 memory a, gtUint256 memory b, address cOwner) external onlyInbox {
+        _emitRespondBool(MpcCore.ge(a, b), cOwner);
+    }
+
+    function gt256(gtUint256 memory a, gtUint256 memory b, address cOwner) external onlyInbox {
+        _emitRespondBool(MpcCore.gt(a, b), cOwner);
+    }
+
+    function le256(gtUint256 memory a, gtUint256 memory b, address cOwner) external onlyInbox {
+        _emitRespondBool(MpcCore.le(a, b), cOwner);
+    }
+
+    function lt256(gtUint256 memory a, gtUint256 memory b, address cOwner) external onlyInbox {
+        _emitRespondBool(MpcCore.lt(a, b), cOwner);
+    }
+
+    /// @dev See `mux64` — same `b,a` swap for client `itBool` ciphertexts.
+    function mux256(gtBool bit, gtUint256 memory a, gtUint256 memory b, address cOwner) external onlyInbox {
+        _emitRespondU256(MpcCore.mux(bit, b, a), cOwner, false);
+    }
+
+    function shl256(gtUint256 memory a, uint8 s, address cOwner) external onlyInbox {
+        _emitRespondU256(MpcCore.shl(a, s), cOwner, false);
+    }
+
+    function shr256(gtUint256 memory a, uint8 s, address cOwner) external onlyInbox {
+        _emitRespondU256(MpcCore.shr(a, s), cOwner, false);
+    }
+
+    /// @dev Returns `abi.encode(uint256)` plaintext (not user ciphertext).
+    function rand256(address) external onlyInbox {
+        uint256 v = MpcCore.decrypt(MpcCore.rand256());
+        _respondPlainUint256(v);
+    }
+
+    /// @dev Returns `abi.encode(uint256)` plaintext (not user ciphertext).
+    function randBoundedBits256(uint8 numBits, address) external onlyInbox {
+        uint256 v = MpcCore.decrypt(MpcCore.randBoundedBits256(numBits));
+        _respondPlainUint256(v);
+    }
+
+    // --- internal ---
+
+    function _respondPlainUint256(uint256 v) private {
+        inbox.respond(abi.encode(v));
+    }
+
+    function _emitRespondU64(gtUint64 v, address cOwner, bool emitAddEvent) private {
+        utUint64 memory combined = MpcCore.offBoardCombined(v, cOwner);
+        if (emitAddEvent) {
+            emit AddResult(combined.userCiphertext, cOwner);
+        }
+        inbox.respond(abi.encode(combined.userCiphertext));
+    }
+
+    function _emitRespondBool(gtBool v, address cOwner) private {
+        utBool memory combined = MpcCore.offBoardCombined(v, cOwner);
+        emit GtResult(combined.userCiphertext, cOwner);
+        inbox.respond(abi.encode(combined.userCiphertext));
+    }
+
+    function _emitRespondU128(gtUint128 memory v, address cOwner, bool emitAdd128) private {
+        utUint128 memory combined = MpcCore.offBoardCombined(v, cOwner);
+        if (emitAdd128) {
+            emit Add128Result(combined.userCiphertext, cOwner);
+        }
+        inbox.respond(abi.encode(combined.userCiphertext));
+    }
+
+    function _emitRespondU256(gtUint256 memory v, address cOwner, bool emitAdd256) private {
+        utUint256 memory combined = MpcCore.offBoardCombined(v, cOwner);
+        if (emitAdd256) {
+            emit Add256Result(combined.userCiphertext, cOwner);
+        }
+        inbox.respond(abi.encode(combined.userCiphertext));
     }
 }

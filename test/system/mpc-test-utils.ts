@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { defineChain, toFunctionSelector, toHex } from "viem";
+import { decodeAbiParameters, defineChain, toFunctionSelector, toHex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { ONBOARD_CONTRACT_ADDRESS, Wallet as CotiWallet } from "@coti-io/coti-ethers";
 import { JsonRpcProvider } from "ethers";
@@ -30,6 +30,12 @@ export type TestContext = {
     sepolia: number;
     coti: bigint;
   };
+};
+
+/** Minimum context for `encryptValue` against the COTI inbox (shared by TestContext and PodTestContext). */
+export type MpcEncryptContext = {
+  crypto: TestContext["crypto"];
+  contracts: { inboxCoti: { address: `0x${string}` } };
 };
 
 export type RequestMethodCall = {
@@ -206,12 +212,18 @@ export type MineRequestContext = {
   sepolia: { wallet: any; publicClient: any };
 };
 
-/** Options for mineRequest. */
+/** Options for mineRequest / {@link runPodRoundTrip}. */
 export type MineRequestOptions = {
   /** Force a specific nonce instead of computing next from lastIncomingRequestId. */
   nonceOverride?: number;
   /** Gas limit for the batchProcessRequests tx (e.g. for 256-bit MPC on COTI testnet). */
   gas?: bigint;
+  /**
+   * Gas limit for the Hardhat `PodTest*.exec*` tx (outbound POD leg). Large `itUint256` payloads and
+   * `sendTwoWayMessage` can require far more than default `eth_estimateGas`; some nodes error with
+   * `gas required exceeds allowance (264187)` when the implicit cap is too low.
+   */
+  hardhatGas?: bigint;
 };
 
 // Mines a source request on the target inbox and waits for confirmation.
@@ -293,8 +305,23 @@ export const mineRequest = async (
 
 /** Default gas for mining 128-bit MPC requests on COTI testnet (batchProcessRequests). */
 export const DEFAULT_COTI_MINE_GAS_MPC_128 = 8_000_000n;
-/** Default gas for mining 256-bit MPC requests on COTI testnet. */
-export const DEFAULT_COTI_MINE_GAS_MPC_256 = 10_000_000n;
+
+const envBigIntOr = (key: string, fallback: bigint): bigint => {
+  const raw = process.env[key]?.trim();
+  if (!raw) return fallback;
+  try {
+    return BigInt(raw);
+  } catch {
+    return fallback;
+  }
+};
+
+/**
+ * Default gas for mining 256-bit MPC on COTI (`batchProcessRequests` → `MpcExecutor.mul256` etc.).
+ * Secret `MpcCore.mul(gtUint256)` is very heavy; 12M often yields inbox errorCode=1 / empty errorMessage (OOG).
+ * Override: `COTI_MINE_GAS_MPC_256=60000000`.
+ */
+export const DEFAULT_COTI_MINE_GAS_MPC_256 = envBigIntOr("COTI_MINE_GAS_MPC_256", 50_000_000n);
 
 /**
  * Returns a mineRequest wrapper that applies a default gas limit when mining on COTI
@@ -348,7 +375,7 @@ export const getResponseRequestBySource = async (
 
 // Encrypts an input value using the COTI wallet.
 export const buildEncryptedInput = async (
-  ctx: TestContext,
+  ctx: MpcEncryptContext,
   value: bigint
 ): Promise<{ ciphertext: bigint; signature: `0x${string}` }> => {
   const functionSelector = toFunctionSelector(
@@ -422,7 +449,7 @@ export const combine64PartsTo256 = (
 
 // Encrypt a 128-bit value as an itUint128 structure (2 x 64-bit parts, bytes[2] signature).
 export const buildEncryptedInput128 = async (
-  ctx: Pick<TestContext, "crypto" | "contracts">,
+  ctx: MpcEncryptContext,
   value: bigint
 ): Promise<{
   ciphertext: { high: bigint; low: bigint };
@@ -481,7 +508,7 @@ export const decryptUint128 = (
 // Encrypt a 256-bit value as an itUint256 structure.
 // This encrypts 4 separate 64-bit values and returns the structured type.
 export const buildEncryptedInput256 = async (
-  ctx: Pick<TestContext, "crypto" | "contracts">,
+  ctx: MpcEncryptContext,
   value: bigint
 ): Promise<{
   ciphertext: {
@@ -965,4 +992,370 @@ const writeCotiDeployments = async (
   };
   await fs.writeFile(deploymentsPath, JSON.stringify(data, null, 2));
 };
+
+// ---------------------------------------------------------------------------
+// Pod harness (PodTest64 / PodTest128 / PodTest256)
+// ---------------------------------------------------------------------------
+
+export type PodTestContractName = "PodTest64" | "PodTest128" | "PodTest256";
+
+const podTestEnvKeys = (name: PodTestContractName) => {
+  switch (name) {
+    case "PodTest64":
+      return { hh: "HARDHAT_POD_TEST64_ADDRESS", sep: "SEPOLIA_POD_TEST64_ADDRESS" };
+    case "PodTest128":
+      return { hh: "HARDHAT_POD_TEST128_ADDRESS", sep: "SEPOLIA_POD_TEST128_ADDRESS" };
+    case "PodTest256":
+      return { hh: "HARDHAT_POD_TEST256_ADDRESS", sep: "SEPOLIA_POD_TEST256_ADDRESS" };
+  }
+};
+
+export type PodTestContext = {
+  sepolia: TestContext["sepolia"];
+  coti: TestContext["coti"];
+  contracts: {
+    inboxSepolia: any;
+    inboxCoti: any;
+    mpcExecutor: any;
+    podTest: any;
+    podTestAsCoti: any;
+  };
+  crypto: TestContext["crypto"];
+  chainIds: TestContext["chainIds"];
+  podContractName: PodTestContractName;
+};
+
+/**
+ * Like {@link setupContext} but deploys PodTest64/128/256 on Hardhat.
+ * Reuses the same COTI inbox + MpcExecutor cache as other MPC tests.
+ * After upgrading executor ops, pass `forceRedeployCotiExecutor: true`, set `COTI_REUSE_CONTRACTS=false`,
+ * or delete `deployments/coti-testnet.json` so COTI picks up a matching `MpcExecutor`.
+ */
+export const setupPodTestContext = async (params: {
+  sepoliaViem: any;
+  cotiViem: any;
+  podContractName: PodTestContractName;
+  /** When true with `COTI_REUSE_CONTRACTS=true`, redeploy only `MpcExecutor` and keep the cached inbox. */
+  forceRedeployCotiExecutor?: boolean;
+}): Promise<PodTestContext> => {
+  requireEnv("COTI_TESTNET_RPC_URL");
+  requirePrivateKey("COTI_TESTNET_PRIVATE_KEY");
+
+  const { hh, sep } = podTestEnvKeys(params.podContractName);
+  const sepoliaChainId = parseInt(process.env.HARDHAT_CHAIN_ID || "31337");
+  const cotiChainId = BigInt(parseInt(process.env.COTI_TESTNET_CHAIN_ID || "7082400"));
+  const cotiDeploymentsPath =
+    process.env.COTI_DEPLOYMENTS_PATH || path.resolve(process.cwd(), "deployments", "coti-testnet.json");
+
+  logStep("Preparing chain clients (pod test harness)");
+  const cotiChain = defineChain({
+    id: Number(cotiChainId),
+    name: "COTI Testnet",
+    nativeCurrency: { name: "COTI", symbol: "COTI", decimals: 18 },
+    rpcUrls: {
+      default: { http: [requireEnv("COTI_TESTNET_RPC_URL")] },
+    },
+  });
+
+  const sepoliaPublicClient = await params.sepoliaViem.getPublicClient();
+  const cotiPublicClient = await params.cotiViem.getPublicClient({ chain: cotiChain });
+  const [sepoliaWallet] = await params.sepoliaViem.getWalletClients();
+  const cotiPrivateKeyMain = normalizePrivateKey(requirePrivateKey("COTI_TESTNET_PRIVATE_KEY"));
+  const cotiAccount = privateKeyToAccount(cotiPrivateKeyMain as `0x${string}`);
+  const hardhatCotiWallet = await params.sepoliaViem.getWalletClient(cotiAccount.address);
+  const cotiWallet = await params.cotiViem.getWalletClient(cotiAccount.address, { chain: cotiChain });
+
+  const inboxSepoliaAddress = envOrEmpty("HARDHAT_INBOX_ADDRESS") || envOrEmpty("SEPOLIA_INBOX_ADDRESS");
+  const podAddress = envOrEmpty(hh) || envOrEmpty(sep);
+
+  const cachedCoti = await readCotiDeployments(cotiDeploymentsPath);
+  const inboxCotiAddress = envOrEmpty("COTI_INBOX_ADDRESS") || cachedCoti.inbox || "";
+  const mpcExecutorAddress =
+    envOrEmpty("COTI_MPC_EXECUTOR_ADDRESS") || cachedCoti.mpcExecutor || "";
+
+  const reuseSepolia = !!(inboxSepoliaAddress && podAddress);
+  const envReuseCoti = envOrEmpty("COTI_REUSE_CONTRACTS").toLowerCase() === "true";
+  const cotiHasCache = !!inboxCotiAddress && !!mpcExecutorAddress;
+  const forceRedeployCotiExecutor = params.forceRedeployCotiExecutor === true;
+  const reuseCotiFull = envReuseCoti && cotiHasCache && !forceRedeployCotiExecutor;
+
+  let inboxSepolia: any;
+  let podTest: any;
+  if (reuseSepolia) {
+    logStep(`Reusing Hardhat: Inbox=${inboxSepoliaAddress} ${params.podContractName}=${podAddress}`);
+    inboxSepolia = await params.sepoliaViem.getContractAt("Inbox", inboxSepoliaAddress as `0x${string}`);
+    podTest = await params.sepoliaViem.getContractAt(
+      params.podContractName,
+      podAddress as `0x${string}`
+    );
+  } else {
+    logStep(`Deploying Hardhat Inbox + ${params.podContractName}`);
+    inboxSepolia = await params.sepoliaViem.deployContract("Inbox", [BigInt(sepoliaChainId)]);
+    podTest = await params.sepoliaViem.deployContract(params.podContractName, [inboxSepolia.address]);
+  }
+
+  const podTestAsCoti = await params.sepoliaViem.getContractAt(params.podContractName, podTest.address, {
+    client: {
+      public: sepoliaPublicClient,
+      wallet: hardhatCotiWallet,
+    },
+  });
+
+  let inboxCoti: any;
+  let mpcExecutor: any;
+  if (reuseCotiFull) {
+    logStep(`Reusing COTI contracts: Inbox=${inboxCotiAddress} MpcExecutor=${mpcExecutorAddress}`);
+    inboxCoti = await params.cotiViem.getContractAt("Inbox", inboxCotiAddress as `0x${string}`, {
+      client: { public: cotiPublicClient, wallet: cotiWallet },
+    });
+    mpcExecutor = await params.cotiViem.getContractAt(
+      "MpcExecutor",
+      mpcExecutorAddress as `0x${string}`,
+      {
+        client: { public: cotiPublicClient, wallet: cotiWallet },
+      }
+    );
+  } else if (envReuseCoti && forceRedeployCotiExecutor && inboxCotiAddress) {
+    logStep(`Redeploying COTI MpcExecutor (keeping inbox ${inboxCotiAddress})`);
+    inboxCoti = await params.cotiViem.getContractAt("Inbox", inboxCotiAddress as `0x${string}`, {
+      client: { public: cotiPublicClient, wallet: cotiWallet },
+    });
+    mpcExecutor = await params.cotiViem.deployContract(
+      "MpcExecutor",
+      [inboxCoti.address],
+      {
+        client: {
+          public: cotiPublicClient,
+          wallet: cotiWallet,
+        },
+      } as any
+    );
+    await writeCotiDeployments(cotiDeploymentsPath, {
+      inbox: inboxCotiAddress,
+      mpcExecutor: mpcExecutor.address,
+    });
+    logStep(`Saved updated MpcExecutor to ${cotiDeploymentsPath}`);
+  } else {
+    logStep("Deploying COTI Inbox + MpcExecutor");
+    inboxCoti = await params.cotiViem.deployContract(
+      "Inbox",
+      [cotiChainId],
+      {
+        client: {
+          public: cotiPublicClient,
+          wallet: cotiWallet,
+        },
+      } as any
+    );
+    mpcExecutor = await params.cotiViem.deployContract(
+      "MpcExecutor",
+      [inboxCoti.address],
+      {
+        client: {
+          public: cotiPublicClient,
+          wallet: cotiWallet,
+        },
+      } as any
+    );
+    await writeCotiDeployments(cotiDeploymentsPath, {
+      inbox: inboxCoti.address,
+      mpcExecutor: mpcExecutor.address,
+    });
+    logStep(`Saved COTI deployments to ${cotiDeploymentsPath}`);
+  }
+  logStep(`COTI inbox address in use: ${inboxCoti.address}`);
+
+  if (!reuseSepolia || !reuseCotiFull) {
+    logStep("Configuring COTI executor + miner (pod test)");
+    await podTest.write.configureCoti([mpcExecutor.address, cotiChainId]);
+    const cotiOwner = await inboxCoti.read.owner();
+    logStep(`COTI inbox owner ${cotiOwner}`);
+    const alreadyMiner = await inboxCoti.read.isMiner([cotiWallet.account.address]);
+    if (!alreadyMiner) {
+      logStep(`Adding COTI miner ${cotiWallet.account.address}`);
+      const addMinerTx = await inboxCoti.write.addMiner([cotiWallet.account.address], {
+        account: cotiWallet.account,
+      });
+      await cotiPublicClient.waitForTransactionReceipt({ hash: addMinerTx, ...receiptWaitOptions });
+      const confirmedMiner = await inboxCoti.read.isMiner([cotiWallet.account.address]);
+      logStep(`COTI miner confirmed=${confirmedMiner}`);
+    } else {
+      logStep("COTI miner already configured");
+    }
+  } else {
+    logStep("Skipping configureCoti/addMiner (reused Sepolia + full COTI cache)");
+  }
+
+  const sepoliaMiner = sepoliaWallet.account.address;
+  const sepoliaAlreadyMiner = await inboxSepolia.read.isMiner([sepoliaMiner]);
+  if (!sepoliaAlreadyMiner) {
+    logStep(`Adding Sepolia miner ${sepoliaMiner}`);
+    await inboxSepolia.write.addMiner([sepoliaMiner]);
+  } else {
+    logStep("Sepolia miner already configured");
+  }
+
+  const cotiRpcUrl = requireEnv("COTI_TESTNET_RPC_URL");
+  const cotiProvider = new JsonRpcProvider(cotiRpcUrl) as any;
+  const cotiPrivateKey = requirePrivateKey("COTI_TESTNET_PRIVATE_KEY");
+  const onboardAddress = process.env.COTI_ONBOARD_CONTRACT_ADDRESS || ONBOARD_CONTRACT_ADDRESS;
+  const userKey = await onboardUser(cotiPrivateKey, cotiRpcUrl, onboardAddress);
+  const cotiEncryptWallet = new CotiWallet(cotiPrivateKey, cotiProvider as any);
+  cotiEncryptWallet.setAesKey(userKey);
+
+  logStep("Pod test setup complete");
+
+  return {
+    sepolia: { publicClient: sepoliaPublicClient, wallet: sepoliaWallet },
+    coti: { publicClient: cotiPublicClient, wallet: cotiWallet },
+    contracts: {
+      inboxSepolia,
+      inboxCoti,
+      mpcExecutor,
+      podTest,
+      podTestAsCoti,
+    },
+    crypto: { userKey, cotiEncryptWallet },
+    chainIds: { sepolia: sepoliaChainId, coti: cotiChainId },
+    podContractName: params.podContractName,
+  };
+};
+
+/**
+ * `PodTest*.lastResult` may be returned as raw `abi.encode(...)` (32 / 64 / 128 bytes) or as a full
+ * ABI-encoded Solidity `bytes` (offset + length + payload). Normalize to the inner payload for decoders.
+ */
+export const unwrapPodLastResultPayload = (getterHex: `0x${string}`): `0x${string}` => {
+  const hex = (getterHex.startsWith("0x") ? getterHex : (`0x${getterHex}` as const)) as `0x${string}`;
+  const byteLen = (hex.length - 2) / 2;
+  if (byteLen === 32 || byteLen === 64 || byteLen === 128) {
+    return hex;
+  }
+  try {
+    const [inner] = decodeAbiParameters([{ type: "bytes", name: "payload" }], hex);
+    return inner as `0x${string}`;
+  } catch {
+    return hex;
+  }
+};
+
+/** Default gas for PodTest256 `exec*` on Hardhat (overridable via `MineRequestOptions.hardhatGas` or `POD_OPS_HARDHAT_GAS`). */
+export const DEFAULT_POD_HARDHAT_GAS_256 = 30_000_000n;
+
+/** Mine COTI + Sepolia round-trip for a pod exec tx; returns raw `lastResult` bytes (hex). */
+export const runPodRoundTrip = async (
+  ctx: PodTestContext,
+  label: string,
+  send: (podAsCoti: any, writeOpts?: { gas?: bigint }) => Promise<`0x${string}`>,
+  mineOptions?: MineRequestOptions
+): Promise<`0x${string}`> => {
+  const hardhatGasFromEnv = process.env.POD_OPS_HARDHAT_GAS?.trim();
+  const envHardhatGas = hardhatGasFromEnv ? BigInt(hardhatGasFromEnv) : undefined;
+  const hardhatWriteGas =
+    mineOptions?.hardhatGas ??
+    envHardhatGas ??
+    (ctx.podContractName === "PodTest256" ? DEFAULT_POD_HARDHAT_GAS_256 : undefined);
+  const writeOpts = hardhatWriteGas !== undefined ? { gas: hardhatWriteGas } : undefined;
+  const txHash = await send(ctx.contracts.podTestAsCoti, writeOpts);
+  await ctx.sepolia.publicClient.waitForTransactionReceipt({ hash: txHash, ...receiptWaitOptions });
+  const request = await getLatestRequest(ctx.contracts.inboxSepolia);
+  const defaultGas =
+    ctx.podContractName === "PodTest256"
+      ? DEFAULT_COTI_MINE_GAS_MPC_256
+      : ctx.podContractName === "PodTest128"
+        ? DEFAULT_COTI_MINE_GAS_MPC_128
+        : undefined;
+  const merged: MineRequestOptions | undefined =
+    defaultGas !== undefined
+      ? { ...mineOptions, gas: mineOptions?.gas ?? defaultGas }
+      : mineOptions;
+  const { requestIdUsed } = await mineRequest(
+    ctx,
+    "coti",
+    BigInt(ctx.chainIds.sepolia),
+    request,
+    label,
+    merged
+  );
+  const responseRequest = await getResponseRequestBySource(ctx.contracts.inboxCoti, requestIdUsed, label);
+  await mineRequest(ctx, "sepolia", ctx.chainIds.coti, responseRequest, label, merged);
+  const getterHex = (await ctx.contracts.podTest.read.lastResult()) as `0x${string}`;
+  return unwrapPodLastResultPayload(getterHex);
+};
+
+/** `abi.encode(ctUint64)` / `ctBool` payload: single uint256 word. */
+export const decodePodCtUint64Word = (data: `0x${string}`): bigint => {
+  const [v] = decodeAbiParameters([{ type: "uint256", name: "w" }], data);
+  return v as bigint;
+};
+
+/** `abi.encode(uint256)` plaintext (e.g. executor `rand*` / `randBoundedBits*` responses). */
+export const decodePodPlainUint256 = (data: `0x${string}`): bigint => {
+  const [v] = decodeAbiParameters([{ type: "uint256", name: "v" }], data);
+  return v as bigint;
+};
+
+/** Decode `abi.encode(ctUint128)` from executor respond payload. */
+export const decodePodCtUint128Struct = (
+  data: `0x${string}`
+): { high: bigint; low: bigint } => {
+  const [t] = decodeAbiParameters(
+    [
+      {
+        type: "tuple",
+        name: "ct",
+        components: [
+          { name: "high", type: "uint256" },
+          { name: "low", type: "uint256" },
+        ],
+      },
+    ],
+    data
+  );
+  return t as { high: bigint; low: bigint };
+};
+
+/** Decode `abi.encode(ctUint256)` from executor respond payload. */
+export const decodePodCtUint256Struct = (
+  data: `0x${string}`
+): { high: { high: bigint; low: bigint }; low: { high: bigint; low: bigint } } => {
+  const [t] = decodeAbiParameters(
+    [
+      {
+        type: "tuple",
+        name: "ct",
+        components: [
+          {
+            name: "high",
+            type: "tuple",
+            components: [
+              { name: "high", type: "uint256" },
+              { name: "low", type: "uint256" },
+            ],
+          },
+          {
+            name: "low",
+            type: "tuple",
+            components: [
+              { name: "high", type: "uint256" },
+              { name: "low", type: "uint256" },
+            ],
+          },
+        ],
+      },
+    ],
+    data
+  );
+  return t as {
+    high: { high: bigint; low: bigint };
+    low: { high: bigint; low: bigint };
+  };
+};
+
+/**
+ * Encrypt 0/1 using the same path as {@link buildEncryptedInput} (64-bit input text), validated on-chain as `itBool`.
+ * `MpcExecutor.mux*` compensates so plaintext `1` still selects the first uint branch and `0` the second.
+ */
+export const buildEncryptedBool = async (ctx: MpcEncryptContext, bit: 0 | 1) =>
+  buildEncryptedInput(ctx, BigInt(bit));
 

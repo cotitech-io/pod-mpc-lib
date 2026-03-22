@@ -3,10 +3,10 @@ pragma solidity ^0.8.26;
 
 import "../IInbox.sol";
 import "../InboxUser.sol";
-import "../mpc/coti-side/ICommonMpcMethods.sol";
 import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 
-contract MpcExecutorMock is ICommonMpcMethods, InboxUser {
+/// @dev Local mock: add64 / gt64 / add128 / add256 only (not full IPodExecutor* surface).
+contract MpcExecutorMock is InboxUser {
     event AddResult(uint c, address cOwner);
     event Add128Result(uint high, uint low, address cOwner);
     event Add256Result(uint highHigh, uint highLow, uint lowHigh, uint lowLow, address cOwner);
@@ -22,7 +22,7 @@ contract MpcExecutorMock is ICommonMpcMethods, InboxUser {
     /// @param a Encrypted input a.
     /// @param b Encrypted input b.
     /// @param cOwner The owner of the result.
-    function add(gtUint64 a, gtUint64 b, address cOwner) external onlyInbox {
+    function add64(gtUint64 a, gtUint64 b, address cOwner) external onlyInbox {
         uint c = uint256(gtUint64.unwrap(a)) + uint256(gtUint64.unwrap(b));
         bytes memory data = abi.encode(c);
         emit AddResult(c, cOwner);
@@ -33,7 +33,7 @@ contract MpcExecutorMock is ICommonMpcMethods, InboxUser {
     /// @param a Encrypted input a.
     /// @param b Encrypted input b.
     /// @param cOwner The owner of the result.
-    function gt(gtUint64 a, gtUint64 b, address cOwner) external onlyInbox {
+    function gt64(gtUint64 a, gtUint64 b, address cOwner) external onlyInbox {
         uint result = uint256(gtUint64.unwrap(a)) > uint256(gtUint64.unwrap(b)) ? 1 : 0;
         bytes memory data = abi.encode(result);
         emit GtResult(result, cOwner);

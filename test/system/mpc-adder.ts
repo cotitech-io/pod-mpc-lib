@@ -48,7 +48,7 @@ describe("MpcAdder (system)", async function () {
     logStep("Test1: tx confirmed, fetching latest request");
     const request = await getLatestRequest(ctx.contracts.inboxSepolia);
 
-    const expectedSelector = toFunctionSelector("add(uint256,uint256,address)");
+    const expectedSelector = toFunctionSelector("add64(uint256,uint256,address)");
     const encodedA = encodeAbiParameters(
       [
         {

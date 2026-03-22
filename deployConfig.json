@@ -1,0 +1,18 @@
+{
+  "chains": {
+    "1": {
+      "inbox": ""
+    },
+    "2632500": {
+      "inbox": "",
+      "cotiExecutor": ""
+    },
+    "7082400": {
+      "inbox": "0x410698612514901be70681812c48d7d3afcd3739",
+      "cotiExecutor": "0x4ac4344553822cdc7201439873d575214ee3d133"
+    },
+    "11155111": {
+      "inbox": "0xbccda4021ec2feb6c20d96aa5ab1ed3f70af7fb9"
+    }
+  }
+}

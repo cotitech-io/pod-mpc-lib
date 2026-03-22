@@ -1278,7 +1278,11 @@ export const runPodRoundTrip = async (
     merged
   );
   const responseRequest = await getResponseRequestBySource(ctx.contracts.inboxCoti, requestIdUsed, label);
-  await mineRequest(ctx, "sepolia", ctx.chainIds.coti, responseRequest, label, merged);
+  // Pod tests use Hardhat as the "Sepolia" chain. EDR caps single-tx gas at 16777216; reusing COTI mine
+  // gas (e.g. 50M for mul256) here makes `batchProcessRequests` fail before broadcast.
+  const localMineOpts: MineRequestOptions | undefined =
+    merged?.nonceOverride !== undefined ? { nonceOverride: merged.nonceOverride } : undefined;
+  await mineRequest(ctx, "sepolia", ctx.chainIds.coti, responseRequest, label, localMineOpts);
   const getterHex = (await ctx.contracts.podTest.read.lastResult()) as `0x${string}`;
   return unwrapPodLastResultPayload(getterHex);
 };

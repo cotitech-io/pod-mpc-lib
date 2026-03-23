@@ -303,6 +303,58 @@ export const mineRequest = async (
   return { txHash, requestIdUsed: nextRequestId };
 };
 
+/** Hardhat + COTI inboxes and chain IDs (e.g. {@link TestContext}). */
+export type CrossChainTwoWayContext = MineRequestContext & {
+  chainIds: { sepolia: number; coti: bigint };
+};
+
+/**
+ * Finishes a two-way cross-chain round-trip after Hardhat has already recorded the outbound `sendTwoWayMessage`:
+ * 1) `mineRequest` on COTI — runs the remote target (`respond`, `raise`, MPC, …)
+ * 2) `getResponseRequestBySource` — load the return one-way request
+ * 3) `mineRequest` on Hardhat — delivers success or error callback
+ *
+ * Same return-leg pattern as {@link runPodRoundTrip}: only `nonceOverride` is forwarded to the Hardhat mine
+ * (large `gas` is for the COTI `batchProcessRequests` only).
+ */
+export const runCrossChainTwoWayRoundTrip = async (
+  ctx: CrossChainTwoWayContext,
+  label: string,
+  mineOptions?: MineRequestOptions
+): Promise<{
+  outboundRequest: Request;
+  cotiIncomingRequestId: `0x${string}`;
+  returnLegRequest: Request;
+  /** Receipt target on Hardhat for the return leg (callback / error delivery). */
+  sepoliaRelayTxHash: `0x${string}`;
+}> => {
+  const outboundRequest = await getLatestRequest(ctx.contracts.inboxSepolia);
+  const { requestIdUsed: cotiIncomingRequestId } = await mineRequest(
+    ctx,
+    "coti",
+    BigInt(ctx.chainIds.sepolia),
+    outboundRequest,
+    label,
+    mineOptions
+  );
+  const returnLegRequest = await getResponseRequestBySource(
+    ctx.contracts.inboxCoti,
+    cotiIncomingRequestId,
+    label
+  );
+  const sepoliaMineOpts: MineRequestOptions | undefined =
+    mineOptions?.nonceOverride !== undefined ? { nonceOverride: mineOptions.nonceOverride } : undefined;
+  const { txHash: sepoliaRelayTxHash } = await mineRequest(
+    ctx,
+    "sepolia",
+    ctx.chainIds.coti,
+    returnLegRequest,
+    label,
+    sepoliaMineOpts
+  );
+  return { outboundRequest, cotiIncomingRequestId, returnLegRequest, sepoliaRelayTxHash };
+};
+
 /** Default gas for mining 128-bit MPC requests on COTI testnet (batchProcessRequests). */
 export const DEFAULT_COTI_MINE_GAS_MPC_128 = 8_000_000n;
 

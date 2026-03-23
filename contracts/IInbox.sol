@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.26;
+pragma solidity ^0.8.19;
 
 interface IInbox {
     struct MpcMethodCall {
@@ -96,6 +96,11 @@ interface IInbox {
     /// @notice Respond to the current incoming message.
     /// @param data The response payload to send back.
     function respond(bytes memory data) external;
+
+    /// @notice Signal an application-level error for the current incoming two-way message (same routing as {respond},
+    ///         but invokes `errorSelector` on the remote caller with `data` as the single `bytes` argument).
+    /// @param data Payload for the remote error callback (e.g. `abi.encode(from, to, reason)` for `transferError(bytes)`).
+    function raise(bytes memory data) external;
 
     /// @notice Pack chain ID and nonce into a request ID.
     /// @param chainId The chain ID.

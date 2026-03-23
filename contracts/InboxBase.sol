@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.26;
+pragma solidity ^0.8.19;
 
 import "./IInbox.sol";
 import "./mpccodec/MpcAbiCodec.sol";
@@ -47,6 +47,11 @@ contract InboxBase is IInbox {
     event ResponseReceived(
         bytes32 indexed requestId,
         bytes response
+    );
+
+    event RaiseReceived(
+        bytes32 indexed incomingRequestId,
+        bytes errorPayload
     );
 
     event IncomingResponseReceived(
@@ -191,11 +196,13 @@ contract InboxBase is IInbox {
     function respond(bytes memory data) external {
         require(_currentContext.requestId != bytes32(0), "Inbox: no active message");
         require(_currentContext.remoteChainId != 0, "Inbox: no active message");
-        
-        bytes32 sourceRequestId = _currentContext.requestId;
-        Request storage incomingRequest = incomingRequests[sourceRequestId];
+
+        bytes32 incomingRequestId = _currentContext.requestId;
+        require(inboxResponses[incomingRequestId].responseRequestId == bytes32(0), "Inbox: reply already sent");
+
+        Request storage incomingRequest = incomingRequests[incomingRequestId];
         require(incomingRequest.requestId != bytes32(0), "Inbox: request not found");
-        
+
         // Create a new one-way request to send response back to source chain
         MpcMethodCall memory responseMethodCall = MpcMethodCall({
             selector: bytes4(0),
@@ -203,12 +210,12 @@ contract InboxBase is IInbox {
             datatypes: new bytes8[](0),
             datalens: new bytes32[](0)
         });
-        
+
         // Get the original sender contract from the incoming request
         // The originalSender is the contract on the source chain that sent the message
         address originalSenderContract = incomingRequest.originalSender;
         require(originalSenderContract != address(0), "Inbox: original sender not found");
-        
+
         // Create one-way request with sourceRequestId set to link it back
         // Use the errorSelector from the original two-way request
         bytes32 responseRequestId = _sendOneWayMessage(
@@ -216,17 +223,57 @@ contract InboxBase is IInbox {
             originalSenderContract,
             responseMethodCall,
             incomingRequest.errorSelector, // Use error handler from original request
-            sourceRequestId // Link back to original request
+            incomingRequestId // Links this outbound message to the current incoming request
         );
-        
+
         // Store response mapping for getInboxResponse
         Response memory response = Response({
             responseRequestId: responseRequestId,
             response: data
         });
-        inboxResponses[sourceRequestId] = response;
-        
-        emit ResponseReceived(sourceRequestId, data);
+        inboxResponses[incomingRequestId] = response;
+
+        emit ResponseReceived(incomingRequestId, data);
+    }
+
+    /// @notice Raises an application error for the current incoming message (mirrors {respond} routing and
+    ///         `sourceRequestId` linkage, but the remote call uses `errorSelector` with `data` as its argument).
+    /// @param data Error payload for the remote `errorSelector(bytes)` (e.g. PodERC20 `transferError` tuple encoding).
+    function raise(bytes memory data) external {
+        require(_currentContext.requestId != bytes32(0), "Inbox: no active message");
+        require(_currentContext.remoteChainId != 0, "Inbox: no active message");
+
+        bytes32 incomingRequestId = _currentContext.requestId;
+        require(inboxResponses[incomingRequestId].responseRequestId == bytes32(0), "Inbox: reply already sent");
+
+        Request storage incomingRequest = incomingRequests[incomingRequestId];
+        require(incomingRequest.requestId != bytes32(0), "Inbox: request not found");
+        require(incomingRequest.errorSelector != bytes4(0), "Inbox: no error handler");
+
+        MpcMethodCall memory errorMethodCall = MpcMethodCall({
+            selector: bytes4(0),
+            data: abi.encodeWithSelector(incomingRequest.errorSelector, data),
+            datatypes: new bytes8[](0),
+            datalens: new bytes32[](0)
+        });
+
+        address originalSenderContract = incomingRequest.originalSender;
+        require(originalSenderContract != address(0), "Inbox: original sender not found");
+
+        bytes32 outboundRequestId = _sendOneWayMessage(
+            _currentContext.remoteChainId,
+            originalSenderContract,
+            errorMethodCall,
+            incomingRequest.errorSelector,
+            incomingRequestId
+        );
+
+        inboxResponses[incomingRequestId] = Response({
+            responseRequestId: outboundRequestId,
+            response: data
+        });
+
+        emit RaiseReceived(incomingRequestId, data);
     }
 
     /// @notice Generates a request ID from a chain ID and nonce (128-bit each)

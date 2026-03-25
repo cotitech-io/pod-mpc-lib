@@ -1,26 +1,37 @@
 // SPDX-License-Identifier: UNLICENSED
+
 pragma solidity ^0.8.19;
 
-import "../../InboxUser.sol";
 import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 
-contract PErc20Coti is InboxUser {
-    uint64 TOTAL_SUPPLY = 1_000_000;
+import "../../InboxUser.sol";
 
-    /// @notice Create the example COTI-side privacy ERC20 contract.
-    /// @param _inbox The inbox contract address.
+
+/**
+ * @title PErc20Coti
+ * @notice COTI-side counterpart to {PErc20}: holds `ctUint64` balances under `keccak256(abi.encode(account))` and moves funds via
+ *         garbled 64-bit arithmetic when the inbox delivers `transferFrom`.
+ * @dev **Gotcha:** decrypts `to` to a plain address to derive the recipient hash—recipient privacy is not preserved on this contract.
+ *      **Gotcha:** initial supply is minted to `msg.sender`’s hash in the constructor only.
+ */
+contract PErc20Coti is InboxUser {
+    uint64 private constant TOTAL_SUPPLY = 1_000_000;
+
+    mapping(bytes32 => ctUint64) public balanceOf;
+
+    /// @param _inbox Inbox address for {InboxUser.setInbox}. Seeds deployer balance with `TOTAL_SUPPLY` in garbled form.
     constructor(address _inbox) {
         setInbox(_inbox);
         gtUint64 toMint = MpcCore.setPublic64(TOTAL_SUPPLY);
         balanceOf[keccak256(abi.encode(msg.sender))] = MpcCore.offBoard(toMint);
     }
 
-    mapping(bytes32 => ctUint64) public balanceOf;
-
-    function transferFrom(address from, gtUint256 calldata to, gtUint64 amount
-    ) external onlyInbox {
-        // Get the balance of for from and to
-        // reduce or revert
+    /**
+     * @notice Inbox-only: subtracts `amount` from `from`’s bucket and credits the recipient implied by encrypted `to`.
+     * @dev **Gotcha:** treats all-zero `ctUint64` as “uninitialized” and substitutes off-boarded zero—same pattern as larger PoD tokens
+     *      but still heuristic. **Gotcha:** no overflow checks beyond MPC `sub`/`add` behavior.
+     */
+    function transferFrom(address from, gtUint256 calldata to, gtUint64 amount) external onlyInbox {
         bytes32 fromHash = keccak256(abi.encode(from));
         address toAddr = address(uint160(uint256(MpcCore.decrypt(to))));
         bytes32 toHash = keccak256(abi.encode(toAddr));

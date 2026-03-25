@@ -411,8 +411,15 @@ export const getResponseRequestBySource = async (
     if (errId && errId !== "0x0000000000000000000000000000000000000000000000000000000000000000") {
       const errorCode = getTupleField(err, "errorCode", 1);
       const errorMessage = getTupleField(err, "errorMessage", 2);
+      const rawHex =
+        typeof errorMessage === "string" && errorMessage.startsWith("0x") ? errorMessage : String(errorMessage ?? "");
+      const selector =
+        rawHex.length >= 10 ? (rawHex.slice(0, 10) as `0x${string}`) : "(none)";
       throw new Error(
-        `COTI execution failed for ${label}: errorCode=${errorCode} errorMessage=${errorMessage ?? "unknown"}`
+        `COTI execution failed for ${label}: errorCode=${errorCode} errorMessage=${errorMessage ?? "unknown"}. ` +
+          `Revert selector (first 4 bytes): ${selector}. ` +
+          `Typical causes: inner target reverted (e.g. PodErc20CotiSide MPC ` +
+            `offBoardToUser for approve/transfer amounts if parties are not onboarded, or OOG — try COTI_MINE_GAS_POD_TOKEN / COTI_MINE_GAS_MPC_256).`
       );
     }
     throw new Error(`Missing COTI response for ${label}: responseRequestId not set`);

@@ -14,19 +14,23 @@ import {
   requirePrivateKey,
   runCrossChainTwoWayRoundTrip,
   setupContext,
-  DEFAULT_COTI_MINE_GAS_MPC_256,
   type MineRequestOptions,
   type TestContext,
 } from "../system/mpc-test-utils.js";
 
-/** Same default as wide MPC tests; override with `COTI_MINE_GAS_POD_TOKEN` (keep below wallet / RPC fee caps). */
+/**
+ * Gas for COTI `batchProcessRequests` in pod-token tests (`syncBalances` runs `offBoardToUser` per account in one tx).
+ * Default is above wide MPC default to reduce OOG on testnet; override with `COTI_MINE_GAS_POD_TOKEN`.
+ */
+const DEFAULT_COTI_MINE_GAS_POD_TOKEN = 80_000_000n;
+
 export function getDefaultCotiMineGasPodToken(): bigint {
   const raw = process.env.COTI_MINE_GAS_POD_TOKEN?.trim();
-  if (!raw) return DEFAULT_COTI_MINE_GAS_MPC_256;
+  if (!raw) return DEFAULT_COTI_MINE_GAS_POD_TOKEN;
   try {
     return BigInt(raw);
   } catch {
-    return DEFAULT_COTI_MINE_GAS_MPC_256;
+    return DEFAULT_COTI_MINE_GAS_POD_TOKEN;
   }
 }
 
@@ -138,7 +142,7 @@ export async function setupPodTokenTestContext(params: {
   return { base, pod, podAsCoti, podCotiSide, owner, bob };
 }
 
-/** Owner `mint(to, amount)` on `PodErc20CotiSide` (COTI garbled ledger). Waits for confirmation. */
+/** Owner `mint(to, amount)` on `PodErc20CotiSide` (COTI balance ciphertext ledger). Waits for confirmation. */
 export async function mintOnCoti(
   ctx: PodTokenTestContext,
   to: `0x${string}`,

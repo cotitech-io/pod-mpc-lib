@@ -1,26 +1,25 @@
-
 // SPDX-License-Identifier: MIT
 
 pragma solidity ^0.8.19;
 
-import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
-
-import "./IPodERC20.sol";
 import "../../InboxUser.sol";
 import "../../mpccodec/MpcAbiCodec.sol";
 import "./cotiside/IPodErc20CotiSide.sol";
+import "./IPodERC20.sol";
 
+
+/**
+ * @title PodERC20
+ * @notice PoD-chain half of a cross-chain private ERC-20: ciphertext balances and allowances are cached here while
+ *         authoritative garbled balances and MPC operations run on COTI via {IPodErc20CotiSide}.
+ * @dev All user-facing moves are asynchronous (`sendTwoWayMessage`). Callbacks (`transferCallback`, etc.) are **only** accepted
+ *      from `inbox` when the cross-chain sender is (`cotiChainId`, `cotiSideContract`). **Gotcha:** `setPublicAmountsEnabled`
+ *      has no access control in this contract—lock down or replace for production.
+ */
 contract PodERC20 is IPodERC20, InboxUser {
     using MpcAbiCodec for MpcAbiCodec.MpcMethodCallContext;
 
-    error TransferAlreadyPending(address from, address to, bytes32 requestId);
-    error ApprovalAlreadyPending(address owner, address spender, bytes32 requestId);
-    error OnlyCotiSideContract(uint256 remoteChainId, address remoteContract);
-    event TransferRequestSubmitted(address indexed from, address indexed to, bytes32 requestId);
-    event ApprovalRequestSubmitted(address indexed owner, address indexed spender, bytes32 requestId);
-    event ApprovalFailed(address indexed owner, address indexed spender, bytes errorMsg);
-    event SyncBalancesFailed(bytes32 requestId, bytes errorMsg);
-    event SyncBalancesRequested(address[] accounts, bytes32 requestId);
+    // --- State variables ---
 
     uint256 public immutable cotiChainId;
     address public immutable cotiSideContract;
@@ -30,13 +29,46 @@ contract PodERC20 is IPodERC20, InboxUser {
     uint256 public totalSupply;
     mapping(address => ctUint256) private _balances;
     mapping(address => mapping(address => IPodERC20.Allowance)) private _allowance;
-    mapping(address => bytes32) private _pendingTransferRequstIds;
+    /// @dev One in-flight transfer or burn per address (used as both sender and receiver lock for transfers).
+    mapping(address => bytes32) private _pendingTransferRequestIds;
     mapping(address => mapping(address => bytes32)) private _pendingApprovalRequestIds;
     bool private _publicAmountsEnabled;
+    /// @dev Optional `transferAndCall` payload keyed by inbox `sourceRequestId`, cleared after callback.
     mapping(bytes32 => bytes) private _requestCallbacks;
     mapping(bytes32 => bytes) public failedRequests;
+    /// @dev Monotonic nonce from COTI; stale callbacks do not overwrite newer balances.
+    mapping(address => uint256) public balanceNonces;
 
-    constructor(uint256 _cotiChainId, address _inbox, address _cotiSideContract, string memory _name, string memory _symbol) {
+    // --- Events (PoD-specific; {Transfer}, {Approval}, etc. are declared on {IPodERC20}) ---
+
+    event TransferRequestSubmitted(address indexed from, address indexed to, bytes32 requestId);
+    event ApprovalRequestSubmitted(address indexed owner, address indexed spender, bytes32 requestId);
+    event ApprovalFailed(address indexed owner, address indexed spender, bytes errorMsg);
+    event SyncBalancesFailed(bytes32 requestId, bytes errorMsg);
+    event SyncBalancesRequested(address[] accounts, bytes32 requestId);
+
+    // --- Errors ---
+
+    error TransferAlreadyPending(address from, address to, bytes32 requestId);
+    error ApprovalAlreadyPending(address owner, address spender, bytes32 requestId);
+    error OnlyCotiSideContract(uint256 remoteChainId, address remoteContract);
+
+    // --- Constructor ---
+
+    /**
+     * @param _cotiChainId Chain id of COTI; must match {IInbox.inboxMsgSender} when the peer calls back.
+     * @param _inbox Cross-chain inbox used for two-way messages (also sets {InboxUser.inbox}).
+     * @param _cotiSideContract Deployed {IPodErc20CotiSide} this token talks to on COTI.
+     * @param _name ERC-20 name string (public metadata on PoD).
+     * @param _symbol ERC-20 symbol string (public metadata on PoD).
+     */
+    constructor(
+        uint256 _cotiChainId,
+        address _inbox,
+        address _cotiSideContract,
+        string memory _name,
+        string memory _symbol
+    ) {
         setInbox(_inbox);
         cotiSideContract = _cotiSideContract;
         name = _name;
@@ -46,34 +78,34 @@ contract PodERC20 is IPodERC20, InboxUser {
         cotiChainId = _cotiChainId;
     }
 
-    function publicAmountsEnabled() external view returns (bool) {
-        return _publicAmountsEnabled;
-    }
+    // --- External: mutating (user / admin) ---
 
+    /**
+     * @notice Toggles whether future plain-uint amount helpers (if you add them) should be allowed.
+     * @dev **Gotcha:** callable by any address; add `onlyOwner` (or similar) if this must be admin-only.
+     */
     function setPublicAmountsEnabled(bool enabled) external {
         _publicAmountsEnabled = enabled;
     }
 
-    function balanceOf(
-        address account
-    ) external view returns (ctUint256 memory) {
-        return _balances[account];
-    }
-
-    function balanceOfWithStatus(
-        address account
-    ) external view returns (ctUint256 memory, bool pending) {
-        return (_balances[account], _pendingTransferRequstIds[account] != bytes32(0));
-    }
-
+    /**
+     * @inheritdoc IPodERC20
+     * @dev **Gotcha:** reverts if either party already has a pending transfer. **Gotcha:** `TransferRequestSubmitted` indexes
+     *      `msg.sender` as `from`, not the `from` argument of internal `_transfer` (same for direct `transfer`).
+     */
     function transfer(address to, itUint256 calldata value) external returns (bytes32 requestId) {
         return _transfer(IPodErc20CotiSide.transfer.selector, msg.sender, to, value);
     }
 
+    /// @inheritdoc IPodERC20
     function transferFrom(address from, address to, itUint256 calldata value) external returns (bytes32 requestId) {
         return _transfer(IPodErc20CotiSide.transferFrom.selector, from, to, value);
     }
 
+    /**
+     * @inheritdoc IPodERC20
+     * @dev Stores `data` under the new `requestId` until {transferCallback} runs successfully and forwards it to `to`.
+     */
     function transferAndCall(
         address to,
         itUint256 calldata amount,
@@ -84,35 +116,22 @@ contract PodERC20 is IPodERC20, InboxUser {
         return requestId;
     }
 
-    function allowance(
-        address owner,
-        address spender
-    ) external view returns (Allowance memory) {
-        return _allowance[owner][spender];
-    }
-
-    function allowanceWithStatus(
-        address owner,
-        address spender
-    ) external view returns (Allowance memory, bool pending) {
-        return (_allowance[owner][spender], _pendingApprovalRequestIds[owner][spender] != bytes32(0));
-    }
-
-    function approve(
-        address spender,
-        itUint256 calldata value
-    ) external returns (bytes32 requestId) {
+    /// @inheritdoc IPodERC20
+    function approve(address spender, itUint256 calldata value) external returns (bytes32 requestId) {
         return _approve(msg.sender, spender, value);
     }
 
+    /// @inheritdoc IPodERC20
     function burn(itUint256 calldata value) external returns (bytes32 requestId) {
         return _burn(msg.sender, value);
     }
 
-
+    /**
+     * @inheritdoc IPodERC20
+     * @dev Does not record a “pending” flag per account for sync; only transfers/burns use the pending-transfer map.
+     */
     function syncBalances(address[] calldata accounts) external returns (bytes32 requestId) {
-        IInbox.MpcMethodCall memory mpcMethodCall =
-            MpcAbiCodec.create(IPodErc20CotiSide.syncBalances.selector, 1)
+        IInbox.MpcMethodCall memory mpcMethodCall = MpcAbiCodec.create(IPodErc20CotiSide.syncBalances.selector, 1)
             .addArgument(accounts)
             .build();
 
@@ -126,16 +145,174 @@ contract PodERC20 is IPodERC20, InboxUser {
         emit SyncBalancesRequested(accounts, requestId);
     }
 
-    function _approve(
+    // --- External: inbox callbacks (success) ---
+
+    /**
+     * @notice Applies post-transfer ciphertext balances and optional `transferAndCall` hook.
+     * @dev **Gotcha:** balance updates apply only when `nonce` exceeds {balanceNonces}; replays with old nonces are ignored.
+     *      **Gotcha:** `to.call(callbackData)` uses all remaining gas; failures emit {RequestCallbackFailed} only.
+     */
+    function transferCallback(bytes memory data) external onlyInbox {
+        (uint256 remoteChainId, address remoteContract) = inbox.inboxMsgSender();
+        if (remoteChainId != cotiChainId || remoteContract != cotiSideContract) {
+            revert OnlyCotiSideContract(remoteChainId, remoteContract);
+        }
+        bytes32 sourceRequestId = inbox.inboxSourceRequestId();
+        (
+            address from,
+            ctUint256 memory newBalanceFrom,
+            ctUint256 memory senderValue,
+            address to,
+            ctUint256 memory newBalanceTo,
+            ctUint256 memory receiverValue,
+            uint256 nonce
+        ) = abi.decode(data, (address, ctUint256, ctUint256, address, ctUint256, ctUint256, uint256));
+        if (from != address(0)) {
+            _pendingTransferRequestIds[from] = bytes32(0);
+            if (balanceNonces[from] < nonce) {
+                _balances[from] = newBalanceFrom;
+                balanceNonces[from] = nonce;
+            }
+        }
+        if (to != address(0)) {
+            _pendingTransferRequestIds[to] = bytes32(0);
+            if (balanceNonces[to] < nonce) {
+                _balances[to] = newBalanceTo;
+                balanceNonces[to] = nonce;
+            }
+        }
+        bytes memory callbackData = _requestCallbacks[sourceRequestId];
+        emit Transfer(from, to, senderValue, receiverValue);
+        if (callbackData.length != 0) {
+            delete _requestCallbacks[sourceRequestId];
+            (bool success, ) = address(to).call(callbackData);
+            if (!success) {
+                emit RequestCallbackFailed(from, to, sourceRequestId, callbackData);
+            }
+        }
+    }
+
+    /**
+     * @notice Writes new allowance ciphertext after COTI approved the request.
+     * @dev Clears the pending approval slot for `(owner, spender)`.
+     */
+    function approveCallback(bytes memory data) external onlyInbox {
+        (uint256 remoteChainId, address remoteContract) = inbox.inboxMsgSender();
+        if (remoteChainId != cotiChainId || remoteContract != cotiSideContract) {
+            revert OnlyCotiSideContract(remoteChainId, remoteContract);
+        }
+        (address owner, ctUint256 memory ownerAmount, address spender, ctUint256 memory spenderAmount) = abi.decode(
+            data,
+            (address, ctUint256, address, ctUint256)
+        );
+        _pendingApprovalRequestIds[owner][spender] = bytes32(0);
+        _allowance[owner][spender] = Allowance({spenderCiphertext: spenderAmount, ownerCiphertext: ownerAmount});
+        emit Approval(owner, spender, ownerAmount, spenderAmount);
+    }
+
+    /**
+     * @notice Applies batched balance ciphertexts from COTI after `syncBalances`.
+     * @dev Per-account update only if `nonce` is newer than {balanceNonces}; emits {BalanceSynced} for each update applied.
+     */
+    function syncBalancesCallback(bytes memory data) external onlyInbox {
+        (uint256 remoteChainId, address remoteContract) = inbox.inboxMsgSender();
+        if (remoteChainId != cotiChainId || remoteContract != cotiSideContract) {
+            revert OnlyCotiSideContract(remoteChainId, remoteContract);
+        }
+        (address[] memory addresses, ctUint256[] memory amounts, uint256 nonce) = abi.decode(
+            data,
+            (address[], ctUint256[], uint256)
+        );
+        for (uint256 i = 0; i < addresses.length; i++) {
+            if (balanceNonces[addresses[i]] < nonce) {
+                _balances[addresses[i]] = amounts[i];
+                balanceNonces[addresses[i]] = nonce;
+                emit BalanceSynced(addresses[i], amounts[i]);
+            }
+        }
+    }
+
+    // --- External: inbox callbacks (errors) ---
+
+    /**
+     * @notice Clears pending transfer state and records `failedRequests` for this `sourceRequestId`.
+     * @dev **Gotcha:** when both `from` and `to` were locked, both are cleared; `TransferFailed` carries decoded addresses.
+     */
+    function transferError(bytes memory data) external onlyInbox {
+        (uint256 remoteChainId, address remoteContract) = inbox.inboxMsgSender();
+        if (remoteChainId != cotiChainId || remoteContract != cotiSideContract) {
+            revert OnlyCotiSideContract(remoteChainId, remoteContract);
+        }
+        (address from, address to, bytes memory errorMsg) = abi.decode(data, (address, address, bytes));
+        bytes32 sourceRequestId = inbox.inboxSourceRequestId();
+        failedRequests[sourceRequestId] = errorMsg;
+        if (from != address(0)) {
+            _pendingTransferRequestIds[from] = bytes32(0);
+        }
+        _pendingTransferRequestIds[to] = bytes32(0);
+        emit TransferFailed(from, to, errorMsg);
+    }
+
+    /// @notice Clears pending approval and surfaces COTI error bytes to listeners and {failedRequests}.
+    function approveError(bytes memory data) external onlyInbox {
+        (uint256 remoteChainId, address remoteContract) = inbox.inboxMsgSender();
+        if (remoteChainId != cotiChainId || remoteContract != cotiSideContract) {
+            revert OnlyCotiSideContract(remoteChainId, remoteContract);
+        }
+        (address owner, address spender, bytes memory errorMsg) = abi.decode(data, (address, address, bytes));
+        bytes32 sourceRequestId = inbox.inboxSourceRequestId();
+        failedRequests[sourceRequestId] = errorMsg;
+        _pendingApprovalRequestIds[owner][spender] = bytes32(0);
+        emit ApprovalFailed(owner, spender, errorMsg);
+    }
+
+    /// @notice `syncBalances` failed on COTI; `data` is forwarded into {SyncBalancesFailed} for debugging.
+    function syncBalancesError(bytes memory data) external onlyInbox {
+        (uint256 remoteChainId, address remoteContract) = inbox.inboxMsgSender();
+        if (remoteChainId != cotiChainId || remoteContract != cotiSideContract) {
+            revert OnlyCotiSideContract(remoteChainId, remoteContract);
+        }
+        bytes32 sourceRequestId = inbox.inboxSourceRequestId();
+        emit SyncBalancesFailed(sourceRequestId, data);
+    }
+
+    // --- External: views ---
+
+    /// @inheritdoc IPodERC20
+    function publicAmountsEnabled() external view returns (bool) {
+        return _publicAmountsEnabled;
+    }
+
+    /// @inheritdoc IPodERC20
+    function balanceOf(address account) external view returns (ctUint256 memory) {
+        return _balances[account];
+    }
+
+    /// @inheritdoc IPodERC20
+    function balanceOfWithStatus(address account) external view returns (ctUint256 memory, bool pending) {
+        return (_balances[account], _pendingTransferRequestIds[account] != bytes32(0));
+    }
+
+    /// @inheritdoc IPodERC20
+    function allowance(address owner, address spender) external view returns (Allowance memory) {
+        return _allowance[owner][spender];
+    }
+
+    /// @inheritdoc IPodERC20
+    function allowanceWithStatus(
         address owner,
-        address spender,
-        itUint256 calldata value
-    ) internal returns (bytes32 requestId) {
+        address spender
+    ) external view returns (Allowance memory, bool pending) {
+        return (_allowance[owner][spender], _pendingApprovalRequestIds[owner][spender] != bytes32(0));
+    }
+
+    // --- Internal ---
+
+    function _approve(address owner, address spender, itUint256 calldata value) internal returns (bytes32 requestId) {
         if (_pendingApprovalRequestIds[owner][spender] != bytes32(0)) {
             revert ApprovalAlreadyPending(owner, spender, _pendingApprovalRequestIds[owner][spender]);
         }
-        IInbox.MpcMethodCall memory mpcMethodCall =
-            MpcAbiCodec.create(IPodErc20CotiSide.approve.selector, 3)
+        IInbox.MpcMethodCall memory mpcMethodCall = MpcAbiCodec.create(IPodErc20CotiSide.approve.selector, 3)
             .addArgument(owner)
             .addArgument(spender)
             .addArgument(value)
@@ -152,16 +329,12 @@ contract PodERC20 is IPodERC20, InboxUser {
         emit ApprovalRequestSubmitted(owner, spender, requestId);
     }
 
-    function _burn(
-        address from,
-        itUint256 calldata value
-    ) internal returns (bytes32 requestId) {
-        if (_pendingTransferRequstIds[from] != bytes32(0)) {
-            revert TransferAlreadyPending(from, address(0), _pendingTransferRequstIds[from]);
+    function _burn(address from, itUint256 calldata value) internal returns (bytes32 requestId) {
+        if (_pendingTransferRequestIds[from] != bytes32(0)) {
+            revert TransferAlreadyPending(from, address(0), _pendingTransferRequestIds[from]);
         }
 
-        IInbox.MpcMethodCall memory mpcMethodCall =
-            MpcAbiCodec.create(IPodErc20CotiSide.burn.selector, 2)
+        IInbox.MpcMethodCall memory mpcMethodCall = MpcAbiCodec.create(IPodErc20CotiSide.burn.selector, 2)
             .addArgument(from)
             .addArgument(value)
             .build();
@@ -174,22 +347,25 @@ contract PodERC20 is IPodERC20, InboxUser {
             PodERC20.transferError.selector
         );
 
-        _pendingTransferRequstIds[from] = requestId;
+        _pendingTransferRequestIds[from] = requestId;
         emit TransferRequestSubmitted(from, address(0), requestId);
     }
-    
+
+    /**
+     * @dev **Gotcha:** `TransferAlreadyPending` carries `_pendingTransferRequestIds[from]` even when `to` was the party that
+     *      was actually pending—inspect both sides off-chain when debugging reverts.
+     */
     function _transfer(
         bytes4 remoteTransferSelector,
         address from,
         address to,
         itUint256 calldata value
     ) internal returns (bytes32 requestId) {
-        if (_pendingTransferRequstIds[from] != bytes32(0) || _pendingTransferRequstIds[to] != bytes32(0)) {
-            revert TransferAlreadyPending(from, to, _pendingTransferRequstIds[from]);
+        if (_pendingTransferRequestIds[from] != bytes32(0) || _pendingTransferRequestIds[to] != bytes32(0)) {
+            revert TransferAlreadyPending(from, to, _pendingTransferRequestIds[from]);
         }
 
-        IInbox.MpcMethodCall memory mpcMethodCall =
-            MpcAbiCodec.create(remoteTransferSelector, 3)
+        IInbox.MpcMethodCall memory mpcMethodCall = MpcAbiCodec.create(remoteTransferSelector, 3)
             .addArgument(from)
             .addArgument(to)
             .addArgument(value)
@@ -202,104 +378,8 @@ contract PodERC20 is IPodERC20, InboxUser {
             PodERC20.transferCallback.selector,
             PodERC20.transferError.selector
         );
-        _pendingTransferRequstIds[from] = requestId;
-        _pendingTransferRequstIds[to] = requestId;
+        _pendingTransferRequestIds[from] = requestId;
+        _pendingTransferRequestIds[to] = requestId;
         emit TransferRequestSubmitted(msg.sender, to, requestId);
-    }
-
-    function transferCallback(bytes memory data) external onlyInbox {
-        // We only accept remote calls from the coti side contract
-        (uint256 remoteChainId, address remoteContract) = inbox.inboxMsgSender();
-        if (remoteChainId != cotiChainId || remoteContract != cotiSideContract) {
-            revert OnlyCotiSideContract(remoteChainId, remoteContract);
-        }
-        bytes32 sourceRequestId = inbox.inboxSourceRequestId();
-        (address from, ctUint256 memory newBalanceFrom, ctUint256 memory senderValue,
-        address to, ctUint256 memory newBalanceTo, ctUint256 memory receiverValue) = abi.decode(data, (address, ctUint256, ctUint256, address, ctUint256, ctUint256));
-        if (from != address(0)) {
-            _pendingTransferRequstIds[from] = bytes32(0);
-            _balances[from] = newBalanceFrom;
-        }
-        if (to != address(0)) {
-            _pendingTransferRequstIds[to] = bytes32(0);
-            _balances[to] = newBalanceTo;
-        }
-        bytes memory callbackData = _requestCallbacks[sourceRequestId];
-        if (callbackData.length != 0) {
-            (bool success, ) = address(to).call(callbackData);
-            if (!success) {
-                emit RequestCallbackFailed(from, to, sourceRequestId, callbackData);
-            }
-            delete _requestCallbacks[sourceRequestId];
-        }
-        emit Transfer(from, to, senderValue, receiverValue);
-    }
-
-    function transferError(bytes memory data) external onlyInbox {
-        // We only accept remote calls from the coti side contract
-        (uint256 remoteChainId, address remoteContract) = inbox.inboxMsgSender();
-        if (remoteChainId != cotiChainId || remoteContract != cotiSideContract) {
-            revert OnlyCotiSideContract(remoteChainId, remoteContract);
-        }
-        (address from, address to, bytes memory errorMsg) = abi.decode(data, (address, address, bytes));
-        bytes32 sourceRequestId = inbox.inboxSourceRequestId();
-        failedRequests[sourceRequestId] = errorMsg;
-        if (from != address(0)) {
-            _pendingTransferRequstIds[from] = bytes32(0);
-        }
-        _pendingTransferRequstIds[to] = bytes32(0);
-        emit TransferFailed(from, to, errorMsg);
-    }
-
-    function approveCallback(bytes memory data) external onlyInbox {
-        // We only accept remote calls from the coti side contract
-        (uint256 remoteChainId, address remoteContract) = inbox.inboxMsgSender();
-        if (remoteChainId != cotiChainId || remoteContract != cotiSideContract) {
-            revert OnlyCotiSideContract(remoteChainId, remoteContract);
-        }
-        (address owner, ctUint256 memory ownerAmount,
-        address spender, ctUint256 memory spenderAmount) = abi.decode(data, (address, ctUint256, address, ctUint256));
-        _pendingApprovalRequestIds[owner][spender] = bytes32(0);
-        _allowance[owner][spender] = Allowance({
-            spenderCiphertext: spenderAmount,
-            ownerCiphertext: ownerAmount
-        });
-        emit Approval(owner, spender, ownerAmount, spenderAmount);
-    }
-
-    function approveError(bytes memory data) external onlyInbox {
-        // We only accept remote calls from the coti side contract
-        (uint256 remoteChainId, address remoteContract) = inbox.inboxMsgSender();
-        if (remoteChainId != cotiChainId || remoteContract != cotiSideContract) {
-            revert OnlyCotiSideContract(remoteChainId, remoteContract);
-        }
-        (address owner, address spender, bytes memory errorMsg) = abi.decode(data, (address, address, bytes));
-        bytes32 sourceRequestId = inbox.inboxSourceRequestId();
-        failedRequests[sourceRequestId] = errorMsg;
-        _pendingApprovalRequestIds[owner][spender] = bytes32(0);
-        emit ApprovalFailed(owner, spender, errorMsg);
-    }
-
-    function syncBalancesCallback(bytes memory data) external onlyInbox {
-        // We only accept remote calls from the coti side contract
-        (uint256 remoteChainId, address remoteContract) = inbox.inboxMsgSender();
-        if (remoteChainId != cotiChainId || remoteContract != cotiSideContract) {
-            revert OnlyCotiSideContract(remoteChainId, remoteContract);
-        }
-        (address[] memory addresses, ctUint256[] memory amounts) = abi.decode(data, (address[], ctUint256[]));
-        for (uint256 i = 0; i < addresses.length; i++) {
-            _balances[addresses[i]] = amounts[i];
-            emit BalanceSynced(addresses[i], amounts[i]);
-        }
-    }
-
-    function syncBalancesError(bytes memory data) external onlyInbox {
-        // We only accept remote calls from the coti side contract
-        (uint256 remoteChainId, address remoteContract) = inbox.inboxMsgSender();
-        if (remoteChainId != cotiChainId || remoteContract != cotiSideContract) {
-            revert OnlyCotiSideContract(remoteChainId, remoteContract);
-        }
-        bytes32 sourceRequestId = inbox.inboxSourceRequestId();
-        emit SyncBalancesFailed(sourceRequestId, data);
     }
 }

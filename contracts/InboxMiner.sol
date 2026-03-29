@@ -12,13 +12,11 @@ contract InboxMiner is InboxBase, MinerBase, IInboxMiner {
 
     /// @notice Executes a mined incoming request on the target chain
     /// @dev Builds calldata from the request (raw calldata or MPC re-encode), sets execution context,
-    ///      calls target, clears context, marks executed, and records errors.
+    ///      then calls the target with `gas` capped by `incomingRequest.targetFee` (**gas units**, not wei).
+    ///      Does not use `tx.gasprice` for execution budgeting—`targetFee` is already a gas budget.
     /// @param incomingRequest The incoming request to execute
     /// @param sourceChainId The chain ID that sent the request
-    function _executeIncomingRequest(
-        Request storage incomingRequest,
-        uint sourceChainId
-    ) internal {
+    function _executeIncomingRequest(Request storage incomingRequest, uint sourceChainId) internal {
         // Set execution context
         _currentContext = ExecutionContext({
             remoteChainId: sourceChainId,
@@ -26,7 +24,6 @@ contract InboxMiner is InboxBase, MinerBase, IInboxMiner {
             requestId: incomingRequest.requestId
         });
 
-        // Deliver message to target contract
         address targetContract = incomingRequest.targetContract;
         (bool encodedOk, bytes memory callData, bytes memory encodeErr) = _safeEncodeMethodCall(
             incomingRequest.methodCall
@@ -47,29 +44,34 @@ contract InboxMiner is InboxBase, MinerBase, IInboxMiner {
             return;
         }
 
-        (bool success, bytes memory returnData) = targetContract.call(callData);
+        uint256 targetGasBudget = incomingRequest.targetFee;
+        uint256 gasBeforeSubcall = gasleft();
 
-        // Always clear execution context after execution
+        bool success;
+        bytes memory returnData;
+        (success, returnData) = targetContract.call{gas: targetGasBudget}(callData);
+
+        uint256 gasUsed = gasBeforeSubcall - gasleft();
+        uint256 gasRemainingApprox = targetGasBudget > gasUsed ? targetGasBudget - gasUsed : 0;
+        emit FeeExecutionSettled(incomingRequest.requestId, gasUsed, gasRemainingApprox);
+
         _currentContext = ExecutionContext({
             remoteChainId: 0,
             remoteContract: address(0),
             requestId: bytes32(0)
         });
 
-        // Mark as executed after delivery
         incomingRequest.executed = true;
 
         if (!success) {
-            // Handle error
-            Error memory err = Error({
-                requestId: incomingRequest.requestId,
+            bytes32 rid = incomingRequest.requestId;
+            errors[rid] = Error({
+                requestId: rid,
                 errorCode: ERROR_CODE_EXECUTION_FAILED,
                 errorMessage: returnData
             });
-            errors[incomingRequest.requestId] = err;
-            emit ErrorReceived(incomingRequest.requestId, ERROR_CODE_EXECUTION_FAILED, returnData);
+            emit ErrorReceived(rid, ERROR_CODE_EXECUTION_FAILED, returnData);
         }
-        // If success and respond() was called, the response request was already created
     }
 
     /// @notice Processes mined requests and errors from a source chain
@@ -77,10 +79,7 @@ contract InboxMiner is InboxBase, MinerBase, IInboxMiner {
     ///      Response data is stored from the executed request's encoded calldata.
     /// @param sourceChainId The chain ID that the requests/errors came from
     /// @param mined Array of mined requests (responses) to process
-    function batchProcessRequests(
-        uint sourceChainId,
-        MinedRequest[] memory mined
-    ) external onlyMiner {
+    function batchProcessRequests(uint sourceChainId, MinedRequest[] memory mined) external onlyMiner {
         require(sourceChainId != chainId, "Inbox: sourceChainId cannot be this chain");
 
         uint256 allowedNonce = 1;
@@ -89,6 +88,7 @@ contract InboxMiner is InboxBase, MinerBase, IInboxMiner {
             allowedNonce++;
         }
 
+        // Process incoming requests (including response requests)
         // Process incoming requests (including response requests)
         for (uint i = 0; i < mined.length; i++) {
             MinedRequest memory minedRequest = mined[i];
@@ -113,7 +113,9 @@ contract InboxMiner is InboxBase, MinerBase, IInboxMiner {
                 errorSelector: minedRequest.errorSelector,
                 isTwoWay: minedRequest.isTwoWay,
                 executed: false,
-                sourceRequestId: minedRequest.sourceRequestId
+                sourceRequestId: minedRequest.sourceRequestId,
+                targetFee: minedRequest.targetFee,
+                callerFee: minedRequest.callerFee
             });
 
             incomingRequests[requestId] = newIncomingRequest;
@@ -124,9 +126,8 @@ contract InboxMiner is InboxBase, MinerBase, IInboxMiner {
 
             // If this is a response request (one-way with sourceRequestId set),
             // update the original request as executed and store the response data.
-            if (incomingRequest.requestId != bytes32(0) &&
-                incomingRequest.sourceRequestId != bytes32(0) &&
-                !incomingRequest.isTwoWay) {
+            if (incomingRequest.requestId != bytes32(0) && incomingRequest.sourceRequestId != bytes32(0)
+                && !incomingRequest.isTwoWay) {
                 bytes32 originalRequestId = incomingRequest.sourceRequestId;
                 Request storage originalRequest = requests[originalRequestId];
 
@@ -140,7 +141,26 @@ contract InboxMiner is InboxBase, MinerBase, IInboxMiner {
         if (mined.length > 0) {
             lastIncomingRequestId[sourceChainId] = mined[mined.length - 1].requestId;
         }
-
     }
 
+    /// @notice Sets the price oracle used for cross-chain fee conversion.
+    function setPriceOracle(address oracle) external onlyOwner {
+        _setPriceOracle(oracle);
+    }
+
+    /// @notice Updates minimum fee templates for local (callback) and remote execution legs.
+    function updateMinFeeConfigs(FeeConfig memory _local, FeeConfig memory _remote) external onlyOwner {
+        _updateMinFeeConfigs(_local, _remote);
+    }
+
+    /// @notice Withdraws the full native balance (accumulated message fees) to the owner.
+    /// @dev Safe to call when balance is zero. Unspent wei from `sendTwoWayMessage` / `sendOneWayMessage` remains here until collected.
+    function collectFees() external onlyOwner {
+        uint256 amount = address(this).balance;
+        if (amount == 0) {
+            return;
+        }
+        (bool ok,) = payable(msg.sender).call{value: amount}("");
+        require(ok, "Inbox: fee transfer failed");
+    }
 }

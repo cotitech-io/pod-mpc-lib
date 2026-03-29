@@ -1,14 +1,17 @@
 import assert from "node:assert/strict";
-import { before, describe, it } from "node:test";
+import { afterEach, before, describe, it } from "node:test";
 import { network } from "hardhat";
 import { toFunctionSelector, zeroHash } from "viem";
 import { decryptUint } from "@coti-io/coti-sdk-typescript";
 import {
   buildEncryptedInput128,
+  collectInboxFeesAfterTest,
   decryptUint128,
+  DEFAULT_POD_CALLBACK_FEE_WEI,
   getLatestRequest,
   getResponseRequestBySource,
   logStep,
+  podTwoWayWriteOptions,
   receiptWaitOptions,
 } from "./mpc-test-utils.js";
 import { mineRequest, setupContext128, type TestContext128 } from "./mpc-test-utils-128.js";
@@ -18,6 +21,10 @@ describe("MpcAdder128 (system)", async function () {
   const { viem: cotiViem } = await network.connect({ network: "cotiTestnet" });
 
   let ctx: TestContext128;
+
+  afterEach(async function () {
+    if (ctx) await collectInboxFeesAfterTest(ctx);
+  });
 
   before(async function () {
     process.env.COTI_REUSE_CONTRACTS = "true";
@@ -32,7 +39,10 @@ describe("MpcAdder128 (system)", async function () {
     const itA = await buildEncryptedInput128(ctx, a);
     const itB = await buildEncryptedInput128(ctx, b);
     logStep("Test1: sending add()");
-    const txHash = await ctx.contracts.mpcAdderAsCoti.write.add([itA, itB]);
+    const txHash = await ctx.contracts.mpcAdderAsCoti.write.add(
+      [itA, itB, DEFAULT_POD_CALLBACK_FEE_WEI],
+      podTwoWayWriteOptions()
+    );
     logStep(`Test1: waiting for tx ${txHash}`);
     await ctx.sepolia.publicClient.waitForTransactionReceipt({
       hash: txHash,
@@ -89,7 +99,10 @@ describe("MpcAdder128 (system)", async function () {
     const itA = await buildEncryptedInput128(ctx, a);
     const itB = await buildEncryptedInput128(ctx, b);
     logStep("Test2: sending add()");
-    const txHash = await ctx.contracts.mpcAdderAsCoti.write.add([itA, itB]);
+    const txHash = await ctx.contracts.mpcAdderAsCoti.write.add(
+      [itA, itB, DEFAULT_POD_CALLBACK_FEE_WEI],
+      podTwoWayWriteOptions()
+    );
     logStep(`Test2: waiting for tx ${txHash}`);
     await ctx.sepolia.publicClient.waitForTransactionReceipt({
       hash: txHash,
@@ -136,7 +149,10 @@ describe("MpcAdder128 (system)", async function () {
     const itA = await buildEncryptedInput128(ctx, a);
     const itB = await buildEncryptedInput128(ctx, b);
     logStep("Test3: sending add()");
-    const txHash = await ctx.contracts.mpcAdderAsCoti.write.add([itA, itB]);
+    const txHash = await ctx.contracts.mpcAdderAsCoti.write.add(
+      [itA, itB, DEFAULT_POD_CALLBACK_FEE_WEI],
+      podTwoWayWriteOptions()
+    );
     await ctx.sepolia.publicClient.waitForTransactionReceipt({
       hash: txHash,
       ...receiptWaitOptions,
@@ -170,7 +186,10 @@ describe("MpcAdder128 (system)", async function () {
     const itA = await buildEncryptedInput128(ctx, a);
     const itB = await buildEncryptedInput128(ctx, b);
     logStep("Test4: sending add()");
-    const txHash = await ctx.contracts.mpcAdderAsCoti.write.add([itA, itB]);
+    const txHash = await ctx.contracts.mpcAdderAsCoti.write.add(
+      [itA, itB, DEFAULT_POD_CALLBACK_FEE_WEI],
+      podTwoWayWriteOptions()
+    );
     await ctx.sepolia.publicClient.waitForTransactionReceipt({
       hash: txHash,
       ...receiptWaitOptions,

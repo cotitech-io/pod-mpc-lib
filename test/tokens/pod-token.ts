@@ -11,7 +11,7 @@
  * Step logs use `[mpc-test] pod-token: …` (see `pt()`); grep `pod-token` in the test output to follow phases.
  */
 import assert from "node:assert/strict";
-import { before, describe, it } from "node:test";
+import { afterEach, before, describe, it } from "node:test";
 import { network } from "hardhat";
 import { logStep } from "../system/mpc-test-utils.js";
 import {
@@ -30,6 +30,11 @@ import {
   utf8FromFailedRequestBytes,
   type PodTokenTestContext,
 } from "./test-token-utils.js";
+import {
+  collectInboxFeesAfterTest,
+  DEFAULT_POD_CALLBACK_FEE_WEI,
+  podTwoWayWriteOptions,
+} from "../system/mpc-test-utils.js";
 
 const runPodTokenSystem = process.env.POD_TOKEN_SYSTEM_TESTS === "1";
 const d = runPodTokenSystem ? describe : describe.skip;
@@ -48,6 +53,10 @@ d("PodERC20 (cross-chain token)", async function () {
   const { viem: cotiViem } = await network.connect({ network: "cotiTestnet" });
 
   let ctx: PodTokenTestContext;
+
+  afterEach(async function () {
+    if (ctx) await collectInboxFeesAfterTest(ctx.base);
+  });
 
   before(async function () {
     pt("before: connecting networks and deploying PodERC20 + PodErc20CotiSide");
@@ -89,7 +98,7 @@ d("PodERC20 (cross-chain token)", async function () {
     pt(`case simple transfer: encrypt ${sendAmt} and run transfer round-trip`);
     const itAmount = await encryptAmount(ctx, sendAmt);
     await completePodOpRoundTrip(ctx, "xferSimple", () =>
-      ctx.podAsCoti.write.transfer([ctx.bob.address, itAmount])
+      ctx.podAsCoti.write.transfer([ctx.bob.address, itAmount, DEFAULT_POD_CALLBACK_FEE_WEI], podTwoWayWriteOptions())
     );
 
     pt("case simple transfer: assert owner and bob balances");
@@ -114,7 +123,7 @@ d("PodERC20 (cross-chain token)", async function () {
     assert.equal(ap.pending, false);
     pt(`case approve+transferFrom: approve self allowance=${allowanceAmt}`);
     await completePodOpRoundTrip(ctx, "apprSelf", () =>
-      ctx.podAsCoti.write.approve([ctx.owner, itAllow])
+      ctx.podAsCoti.write.approve([ctx.owner, itAllow, DEFAULT_POD_CALLBACK_FEE_WEI], podTwoWayWriteOptions())
     );
 
     ap = await readAllowanceWithPending(ctx, ctx.owner, ctx.owner);
@@ -127,7 +136,10 @@ d("PodERC20 (cross-chain token)", async function () {
     pt(`case approve+transferFrom: transferFrom owner→bob spend=${spendAmt}`);
     const itSpend = await encryptAmount(ctx, spendAmt);
     await completePodOpRoundTrip(ctx, "xferFrom", () =>
-      ctx.podAsCoti.write.transferFrom([ctx.owner, ctx.bob.address, itSpend])
+      ctx.podAsCoti.write.transferFrom(
+        [ctx.owner, ctx.bob.address, itSpend, DEFAULT_POD_CALLBACK_FEE_WEI],
+        podTwoWayWriteOptions()
+      )
     );
 
     assert.equal(await readDecryptedBalance(ctx, ctx.owner), ownerBefore + start - spendAmt);
@@ -150,7 +162,10 @@ d("PodERC20 (cross-chain token)", async function () {
 
     pt("case pending guard: submit first transfer (PoD only, not mined yet on COTI)");
     const itSmall = await encryptAmount(ctx, 100n);
-    const txHash = await ctx.podAsCoti.write.transfer([ctx.bob.address, itSmall]);
+    const txHash = await ctx.podAsCoti.write.transfer(
+      [ctx.bob.address, itSmall, DEFAULT_POD_CALLBACK_FEE_WEI],
+      podTwoWayWriteOptions()
+    );
     await ctx.base.sepolia.publicClient.waitForTransactionReceipt({ hash: txHash });
 
     const mid = await readBalanceWithPending(ctx, ctx.owner);
@@ -159,7 +174,8 @@ d("PodERC20 (cross-chain token)", async function () {
 
     const itAnother = await encryptAmount(ctx, 200n);
     await assert.rejects(
-      () => ctx.podAsCoti.write.transfer([ctx.bob.address, itAnother]),
+      () =>
+        ctx.podAsCoti.write.transfer([ctx.bob.address, itAnother, DEFAULT_POD_CALLBACK_FEE_WEI], podTwoWayWriteOptions()),
       (e: unknown) => {
         const msg = e instanceof Error ? e.message : String(e);
         return msg.includes("TransferAlreadyPending");
@@ -189,7 +205,7 @@ d("PodERC20 (cross-chain token)", async function () {
     const itAmount = await encryptAmount(ctx, tooMuch);
     pt("case failed transfer: round-trip (COTI should reject insufficient balance)");
     const { cotiIncomingRequestId } = await completePodOpRoundTrip(ctx, "failXfer", () =>
-      ctx.podAsCoti.write.transfer([ctx.bob.address, itAmount])
+      ctx.podAsCoti.write.transfer([ctx.bob.address, itAmount, DEFAULT_POD_CALLBACK_FEE_WEI], podTwoWayWriteOptions())
     );
 
     const st = await readBalanceWithPending(ctx, ctx.owner);

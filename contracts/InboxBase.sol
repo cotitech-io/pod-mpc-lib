@@ -2,9 +2,10 @@
 pragma solidity ^0.8.19;
 
 import "./IInbox.sol";
+import "./fee/InboxFeeManager.sol";
 import "./mpccodec/MpcAbiCodec.sol";
 
-contract InboxBase is IInbox {
+contract InboxBase is IInbox, InboxFeeManager {
     uint256 public chainId; // We keep this mutable, only to have the same contract address on multiple chains
     
     // Mapping from requestId to Request
@@ -65,6 +66,11 @@ contract InboxBase is IInbox {
         bytes errorMessage
     );
 
+    /// @notice Emitted after executing an incoming request. Amounts are **gas units** (same basis as `Request.targetFee`).
+    /// @param gasUsed Gas consumed by the subcall (approximate).
+    /// @param gasRemainingApprox Gas budget remaining from `targetFee` after the subcall (not below zero).
+    event FeeExecutionSettled(bytes32 indexed requestId, uint256 gasUsed, uint256 gasRemainingApprox);
+
     uint64 internal constant ERROR_CODE_EXECUTION_FAILED = 1;
     uint64 internal constant ERROR_CODE_ENCODE_FAILED = 2;
 
@@ -77,20 +83,21 @@ contract InboxBase is IInbox {
     /// @notice Sends a two-way message to a target chain with callback and error handlers
     /// @dev If methodCall.selector is zero, methodCall.data must be full calldata
     ///      (abi.encodeWithSelector) and datatypes/datalens must be empty.
-    /// @param targetChainId The chain ID of the target chain
-    /// @param targetContract The address of the target contract on the target chain
-    /// @param methodCall The method call to send
-    /// @param callbackSelector The function selector to call when response is received
-    /// @param errorSelector The function selector to call when an error occurs
-    /// @return requestId The unique request ID for this message
+    /// @param callbackFeeLocalWei Portion of `msg.value` (wei) reserved for the callback leg; converted to gas units via `/ tx.gasprice` in {InboxFeeManager}.
     function sendTwoWayMessage(
         uint256 targetChainId,
         address targetContract,
         MpcMethodCall calldata methodCall,
         bytes4 callbackSelector,
-        bytes4 errorSelector
-    ) external virtual returns (bytes32) {
-        return _sendTwoWayMessage(targetChainId, targetContract, methodCall, callbackSelector, errorSelector);
+        bytes4 errorSelector,
+        uint256 callbackFeeLocalWei
+    ) external payable virtual returns (bytes32) {
+        uint256 dataSize = abi.encode(methodCall).length;
+        (uint256 targetFeeGas, uint256 callerFeeGas) =
+            validateAndPrepareTwoWayFees(dataSize, msg.value, callbackFeeLocalWei);
+        return _sendTwoWayMessage(
+            targetChainId, targetContract, methodCall, callbackSelector, errorSelector, targetFeeGas, callerFeeGas
+        );
     }
 
     /// @dev Internal helper to create a two-way request.
@@ -99,7 +106,9 @@ contract InboxBase is IInbox {
         address targetContract,
         MpcMethodCall memory methodCall,
         bytes4 callbackSelector,
-        bytes4 errorSelector
+        bytes4 errorSelector,
+        uint256 targetFeeGas,
+        uint256 callerFeeGas
     ) internal returns (bytes32) {
         return _createRequest(
             targetChainId,
@@ -108,34 +117,35 @@ contract InboxBase is IInbox {
             callbackSelector,
             errorSelector,
             true,
-            bytes32(0)
+            bytes32(0),
+            targetFeeGas,
+            callerFeeGas
         );
     }
 
     /// @notice Sends a one-way message to a target chain with only an error handler
     /// @dev If methodCall.selector is zero, methodCall.data must be full calldata
     ///      (abi.encodeWithSelector) and datatypes/datalens must be empty.
-    /// @param targetChainId The chain ID of the target chain
-    /// @param targetContract The address of the target contract on the target chain
-    /// @param methodCall The method call to send
-    /// @param errorSelector The function selector to call when an error occurs
-    /// @return requestId The unique request ID for this message
     function sendOneWayMessage(
         uint256 targetChainId,
         address targetContract,
         MpcMethodCall calldata methodCall,
         bytes4 errorSelector
-    ) external returns (bytes32) {
-        return _sendOneWayMessage(targetChainId, targetContract, methodCall, errorSelector, bytes32(0));
+    ) external payable returns (bytes32) {
+        uint256 dataSize = abi.encode(methodCall).length;
+        uint256 targetFeeGas = validateAndPrepareOneWayFees(dataSize, msg.value);
+        return _sendOneWayMessage(targetChainId, targetContract, methodCall, errorSelector, bytes32(0), targetFeeGas, 0);
     }
-    
+
     /// @dev Internal helper to create a one-way request.
     function _sendOneWayMessage(
         uint256 targetChainId,
         address targetContract,
         MpcMethodCall memory methodCall,
         bytes4 errorSelector,
-        bytes32 sourceRequestId
+        bytes32 sourceRequestId,
+        uint256 targetFeeGas,
+        uint256 callerFeeGas
     ) internal returns (bytes32) {
         return _createRequest(
             targetChainId,
@@ -144,7 +154,9 @@ contract InboxBase is IInbox {
             bytes4(0),
             errorSelector,
             false,
-            sourceRequestId
+            sourceRequestId,
+            targetFeeGas,
+            callerFeeGas
         );
     }
 
@@ -223,7 +235,9 @@ contract InboxBase is IInbox {
             originalSenderContract,
             responseMethodCall,
             incomingRequest.errorSelector, // Use error handler from original request
-            incomingRequestId // Links this outbound message to the current incoming request
+            incomingRequestId, // Links this outbound message to the current incoming request
+            incomingRequest.callerFee,
+            0
         );
 
         // Store response mapping for getInboxResponse
@@ -265,7 +279,9 @@ contract InboxBase is IInbox {
             originalSenderContract,
             errorMethodCall,
             incomingRequest.errorSelector,
-            incomingRequestId
+            incomingRequestId,
+            incomingRequest.callerFee,
+            0
         );
 
         inboxResponses[incomingRequestId] = Response({
@@ -348,7 +364,9 @@ contract InboxBase is IInbox {
         bytes4 callbackSelector,
         bytes4 errorSelector,
         bool isTwoWay,
-        bytes32 sourceRequestId
+        bytes32 sourceRequestId,
+        uint256 targetFeeGas,
+        uint256 callerFeeGas
     ) internal returns (bytes32) {
         require(targetChainId != chainId, "Inbox: cannot send to same chain");
         require(targetContract != address(0), "Inbox: invalid target contract");
@@ -371,7 +389,9 @@ contract InboxBase is IInbox {
             errorSelector: errorSelector,
             isTwoWay: isTwoWay,
             executed: false,
-            sourceRequestId: sourceRequestId
+            sourceRequestId: sourceRequestId,
+            targetFee: targetFeeGas,
+            callerFee: callerFeeGas
         });
 
         requests[requestId] = request;

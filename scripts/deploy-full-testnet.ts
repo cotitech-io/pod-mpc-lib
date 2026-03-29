@@ -129,6 +129,8 @@ const main = async () => {
     });
     millionaireAddress = millionaire.address;
     console.log(`[deploy-full-testnet] Millionaire deployed: ${millionaire.address}`);
+    const fundM = await sourceWalletClient.sendTransaction({ to: millionaire.address, value: 10n ** 18n });
+    await sourcePublicClient.waitForTransactionReceipt({ hash: fundM });
     console.log("[deploy-full-testnet] Configuring Millionaire...");
     await millionaire.write.configureCoti([cotiExecutor.address, cotiChainId]);
     console.log("[deploy-full-testnet] Millionaire configured");
@@ -145,6 +147,8 @@ const main = async () => {
     client: { public: sourcePublicClient, wallet: sourceWalletClient },
   });
   console.log(`[deploy-full-testnet] MpcAdder deployed: ${mpcAdder.address}`);
+  const fundAdder = await sourceWalletClient.sendTransaction({ to: mpcAdder.address, value: 10n ** 18n });
+  await sourcePublicClient.waitForTransactionReceipt({ hash: fundAdder });
   console.log("[deploy-full-testnet] Configuring MpcAdder...");
   await mpcAdder.write.configureCoti([cotiExecutor.address, cotiChainId]);
   console.log("[deploy-full-testnet] MpcAdder configured");
@@ -163,6 +167,8 @@ const main = async () => {
     });
     pErc20Address = pErc20.address;
     console.log(`[deploy-full-testnet] PErc20 deployed: ${pErc20.address}`);
+    const fundPe = await sourceWalletClient.sendTransaction({ to: pErc20.address, value: 10n ** 18n });
+    await sourcePublicClient.waitForTransactionReceipt({ hash: fundPe });
     console.log("[deploy-full-testnet] Configuring PErc20...");
     await pErc20.write.configureCoti([cotiExecutor.address, cotiChainId]);
     console.log("[deploy-full-testnet] PErc20 configured");

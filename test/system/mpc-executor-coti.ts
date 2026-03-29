@@ -2,8 +2,9 @@
  * System test: `MpcExecutorCotiTest` on COTI testnet.
  *
  * 1. **Direct `MpcCore`**: `mul*PublicPlain` — setPublic → mul/checkedMul → decrypt (no executor, no `respond`).
- * 2. **`MpcExecutor`**: `executorMul*PublicPlain` — this harness is deployed as the executor's inbox (`new MpcExecutor(address(this))`),
- *    so `onlyInbox` passes; executor calls `respond` here and we decrypt the user ciphertext to `lastPlain*`.
+ * 2. **`MpcExecutor`**: `executorMul*PublicPlain` — proxy calls `mul*FromPlain` on the executor so `onlyInbox` passes and
+ *    **`setPublic*` + `mul` run inside `MpcExecutor`** (COTI MPC precompile ties handles to the executing contract). The proxy
+ *    stores `respond` bytes; we decrypt to `lastPlain*`.
  *
  * COTI `decrypt` is not reliable under `eth_call`; use transactions + `read` getters.
  *
@@ -27,7 +28,10 @@ const MOD_256 = 1n << 256n;
  * Some COTI RPCs fail `eth_estimateGas` on heavy `mul256` txs; a modest explicit cap avoids that.
  * Keep limits low enough that `gas * gasPrice` fits typical testnet wallets (very high caps can exceed balance).
  */
-const GAS_MPC_MUL256 = 15_000_000n;
+/** COTI `mul256` can exceed 15M gas; override with `MPC_COTI_MUL256_GAS` if needed. */
+const GAS_MPC_MUL256 = process.env.MPC_COTI_MUL256_GAS?.trim()
+  ? BigInt(process.env.MPC_COTI_MUL256_GAS.trim())
+  : 50_000_000n;
 const GAS_MPC_MUL128 = 12_000_000n;
 
 function mod256Mul(a: bigint, b: bigint): bigint {
@@ -105,7 +109,11 @@ describe("MpcExecutorCotiTest (COTI)", async function () {
         account: wallet.account,
         gas: GAS_MPC_MUL256,
       });
-      await publicClient.waitForTransactionReceipt({ hash, ...receiptWaitOptions });
+      const receipt = await publicClient.waitForTransactionReceipt({
+        hash,
+        ...receiptWaitOptions,
+      });
+      assert.equal(receipt.status, "success", `${name} must succeed (check gas / RPC)`);
       return harness.read.lastPlain256();
     }
 
@@ -204,14 +212,22 @@ describe("MpcExecutorCotiTest (COTI)", async function () {
           account: wallet.account,
           gas: GAS_MPC_MUL256,
         });
-        await publicClient.waitForTransactionReceipt({ hash: hDirect, ...receiptWaitOptions });
+        const rDirect = await publicClient.waitForTransactionReceipt({
+          hash: hDirect,
+          ...receiptWaitOptions,
+        });
+        assert.equal(rDirect.status, "success", "direct mul256PublicPlain");
         const direct = await harness.read.lastPlain256();
 
         const hExec = await harness.write.executorMul256PublicPlain([a, b, cOwner()], {
           account: wallet.account,
           gas: GAS_MPC_MUL256,
         });
-        await publicClient.waitForTransactionReceipt({ hash: hExec, ...receiptWaitOptions });
+        const rExec = await publicClient.waitForTransactionReceipt({
+          hash: hExec,
+          ...receiptWaitOptions,
+        });
+        assert.equal(rExec.status, "success", "executorMul256PublicPlain");
         const viaExec = await harness.read.lastPlain256();
 
         assert.equal(
@@ -230,14 +246,16 @@ describe("MpcExecutorCotiTest (COTI)", async function () {
         account: wallet.account,
         gas: GAS_MPC_MUL128,
       });
-      await publicClient.waitForTransactionReceipt({ hash: h1, ...receiptWaitOptions });
+      const rec1 = await publicClient.waitForTransactionReceipt({ hash: h1, ...receiptWaitOptions });
+      assert.equal(rec1.status, "success", "mul128PublicPlain");
       const direct = await harness.read.lastPlain128();
 
       const h2 = await harness.write.executorMul128PublicPlain([a, b, cOwner()], {
         account: wallet.account,
         gas: GAS_MPC_MUL128,
       });
-      await publicClient.waitForTransactionReceipt({ hash: h2, ...receiptWaitOptions });
+      const rec2 = await publicClient.waitForTransactionReceipt({ hash: h2, ...receiptWaitOptions });
+      assert.equal(rec2.status, "success", "executorMul128PublicPlain");
       const viaExec = await harness.read.lastPlain128();
 
       assert.equal(viaExec, direct);
@@ -248,13 +266,15 @@ describe("MpcExecutorCotiTest (COTI)", async function () {
       const a = 1234n;
       const b = 5678n;
       const h1 = await harness.write.mul64PublicPlain([a, b], { account: wallet.account });
-      await publicClient.waitForTransactionReceipt({ hash: h1, ...receiptWaitOptions });
+      const rec1 = await publicClient.waitForTransactionReceipt({ hash: h1, ...receiptWaitOptions });
+      assert.equal(rec1.status, "success", "mul64PublicPlain");
       const direct = await harness.read.lastPlain64();
 
       const h2 = await harness.write.executorMul64PublicPlain([a, b, cOwner()], {
         account: wallet.account,
       });
-      await publicClient.waitForTransactionReceipt({ hash: h2, ...receiptWaitOptions });
+      const rec2 = await publicClient.waitForTransactionReceipt({ hash: h2, ...receiptWaitOptions });
+      assert.equal(rec2.status, "success", "executorMul64PublicPlain");
       const viaExec = await harness.read.lastPlain64();
 
       assert.equal(viaExec, direct);

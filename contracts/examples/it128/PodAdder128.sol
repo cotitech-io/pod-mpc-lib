@@ -20,13 +20,15 @@ contract PodAdder128 is PodLib {
     /// @notice Send an MPC add request using encrypted inputs.
     /// @param a Encrypted input a (itUint128).
     /// @param b Encrypted input b (itUint128).
-    function add(itUint128 calldata a, itUint128 calldata b) external {
+    function add(itUint128 calldata a, itUint128 calldata b, uint256 callbackFeeLocalWei) external payable {
         bytes32 requestId = add128(
             a,
             b,
             msg.sender,
             PodAdder128.receiveC.selector,
-            PodLibBase.onDefaultMpcError.selector
+            PodLibBase.onDefaultMpcError.selector,
+            msg.value,
+            callbackFeeLocalWei
         );
         emit AddRequest(requestId);
     }

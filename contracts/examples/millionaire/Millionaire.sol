@@ -26,9 +26,13 @@ contract Millionaire is PodLib {
         encryptedWealthOf[msg.sender] = wealth;
     }
 
-    function reveal(address a, address b) external {
+    /// @param callbackFeeLocalWei Wei slice for each comparison's callback leg; `msg.value` is split evenly across the two inbox sends.
+    function reveal(address a, address b, uint256 callbackFeeLocalWei) external payable {
         require(isWealthRegistered(a), "A's wealth is not registered");
         require(isWealthRegistered(b), "B's wealth is not registered");
+        uint256 half = msg.value / 2;
+        uint256 rest = msg.value - half;
+        require(callbackFeeLocalWei <= half && callbackFeeLocalWei <= rest, "Millionaire: callback fee");
         itUint64 memory wealthA = encryptedWealthOf[a];
         itUint64 memory wealthB = encryptedWealthOf[b];
         revealRequests[a][b] = gt64(
@@ -36,13 +40,19 @@ contract Millionaire is PodLib {
             wealthB,
             a,
             this.revealCallback.selector,
-            PodLibBase.onDefaultMpcError.selector);
+            PodLibBase.onDefaultMpcError.selector,
+            half,
+            callbackFeeLocalWei
+        );
         revealRequests[b][a] = gt64(
             wealthB,
             wealthA,
             b,
             this.revealCallback.selector,
-            PodLibBase.onDefaultMpcError.selector);
+            PodLibBase.onDefaultMpcError.selector,
+            rest,
+            callbackFeeLocalWei
+        );
     }
 
     function revealMyWealthGtThan(address b) external view returns (bool,ctBool) {

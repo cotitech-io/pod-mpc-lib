@@ -20,9 +20,11 @@ abstract contract PodLib64 is PodLibBase {
         itUint64 memory b,
         address cOwner,
         bytes4 callbackSelector,
-        bytes4 errorSelector
+        bytes4 errorSelector,
+        uint256 totalValueWei,
+        uint256 callbackFeeLocalWei
     ) internal returns (bytes32) {
-        return _sendThree(IPodExecutor64.add64.selector, a, b, cOwner, callbackSelector, errorSelector);
+        return _sendThree(IPodExecutor64.add64.selector, a, b, cOwner, callbackSelector, errorSelector, totalValueWei, callbackFeeLocalWei);
     }
 
     function gt64(
@@ -30,9 +32,11 @@ abstract contract PodLib64 is PodLibBase {
         itUint64 memory b,
         address cOwner,
         bytes4 callbackSelector,
-        bytes4 errorSelector
+        bytes4 errorSelector,
+        uint256 totalValueWei,
+        uint256 callbackFeeLocalWei
     ) internal returns (bytes32) {
-        return _sendThree(IPodExecutor64.gt64.selector, a, b, cOwner, callbackSelector, errorSelector);
+        return _sendThree(IPodExecutor64.gt64.selector, a, b, cOwner, callbackSelector, errorSelector, totalValueWei, callbackFeeLocalWei);
     }
 
     function sub64(
@@ -40,9 +44,11 @@ abstract contract PodLib64 is PodLibBase {
         itUint64 memory b,
         address cOwner,
         bytes4 callbackSelector,
-        bytes4 errorSelector
+        bytes4 errorSelector,
+        uint256 totalValueWei,
+        uint256 callbackFeeLocalWei
     ) internal returns (bytes32) {
-        return _sendThree(IPodExecutor64.sub64.selector, a, b, cOwner, callbackSelector, errorSelector);
+        return _sendThree(IPodExecutor64.sub64.selector, a, b, cOwner, callbackSelector, errorSelector, totalValueWei, callbackFeeLocalWei);
     }
 
     function mul64(
@@ -50,9 +56,11 @@ abstract contract PodLib64 is PodLibBase {
         itUint64 memory b,
         address cOwner,
         bytes4 callbackSelector,
-        bytes4 errorSelector
+        bytes4 errorSelector,
+        uint256 totalValueWei,
+        uint256 callbackFeeLocalWei
     ) internal returns (bytes32) {
-        return _sendThree(IPodExecutor64.mul64.selector, a, b, cOwner, callbackSelector, errorSelector);
+        return _sendThree(IPodExecutor64.mul64.selector, a, b, cOwner, callbackSelector, errorSelector, totalValueWei, callbackFeeLocalWei);
     }
 
     function div64(
@@ -60,9 +68,11 @@ abstract contract PodLib64 is PodLibBase {
         itUint64 memory b,
         address cOwner,
         bytes4 callbackSelector,
-        bytes4 errorSelector
+        bytes4 errorSelector,
+        uint256 totalValueWei,
+        uint256 callbackFeeLocalWei
     ) internal returns (bytes32) {
-        return _sendThree(IPodExecutor64.div64.selector, a, b, cOwner, callbackSelector, errorSelector);
+        return _sendThree(IPodExecutor64.div64.selector, a, b, cOwner, callbackSelector, errorSelector, totalValueWei, callbackFeeLocalWei);
     }
 
     function rem64(
@@ -70,9 +80,11 @@ abstract contract PodLib64 is PodLibBase {
         itUint64 memory b,
         address cOwner,
         bytes4 callbackSelector,
-        bytes4 errorSelector
+        bytes4 errorSelector,
+        uint256 totalValueWei,
+        uint256 callbackFeeLocalWei
     ) internal returns (bytes32) {
-        return _sendThree(IPodExecutor64.rem64.selector, a, b, cOwner, callbackSelector, errorSelector);
+        return _sendThree(IPodExecutor64.rem64.selector, a, b, cOwner, callbackSelector, errorSelector, totalValueWei, callbackFeeLocalWei);
     }
 
     function and64(
@@ -80,9 +92,11 @@ abstract contract PodLib64 is PodLibBase {
         itUint64 memory b,
         address cOwner,
         bytes4 callbackSelector,
-        bytes4 errorSelector
+        bytes4 errorSelector,
+        uint256 totalValueWei,
+        uint256 callbackFeeLocalWei
     ) internal returns (bytes32) {
-        return _sendThree(IPodExecutor64.and64.selector, a, b, cOwner, callbackSelector, errorSelector);
+        return _sendThree(IPodExecutor64.and64.selector, a, b, cOwner, callbackSelector, errorSelector, totalValueWei, callbackFeeLocalWei);
     }
 
     function or64(
@@ -90,9 +104,11 @@ abstract contract PodLib64 is PodLibBase {
         itUint64 memory b,
         address cOwner,
         bytes4 callbackSelector,
-        bytes4 errorSelector
+        bytes4 errorSelector,
+        uint256 totalValueWei,
+        uint256 callbackFeeLocalWei
     ) internal returns (bytes32) {
-        return _sendThree(IPodExecutor64.or64.selector, a, b, cOwner, callbackSelector, errorSelector);
+        return _sendThree(IPodExecutor64.or64.selector, a, b, cOwner, callbackSelector, errorSelector, totalValueWei, callbackFeeLocalWei);
     }
 
     function xor64(
@@ -100,9 +116,11 @@ abstract contract PodLib64 is PodLibBase {
         itUint64 memory b,
         address cOwner,
         bytes4 callbackSelector,
-        bytes4 errorSelector
+        bytes4 errorSelector,
+        uint256 totalValueWei,
+        uint256 callbackFeeLocalWei
     ) internal returns (bytes32) {
-        return _sendThree(IPodExecutor64.xor64.selector, a, b, cOwner, callbackSelector, errorSelector);
+        return _sendThree(IPodExecutor64.xor64.selector, a, b, cOwner, callbackSelector, errorSelector, totalValueWei, callbackFeeLocalWei);
     }
 
     function min64(
@@ -110,9 +128,11 @@ abstract contract PodLib64 is PodLibBase {
         itUint64 memory b,
         address cOwner,
         bytes4 callbackSelector,
-        bytes4 errorSelector
+        bytes4 errorSelector,
+        uint256 totalValueWei,
+        uint256 callbackFeeLocalWei
     ) internal returns (bytes32) {
-        return _sendThree(IPodExecutor64.min64.selector, a, b, cOwner, callbackSelector, errorSelector);
+        return _sendThree(IPodExecutor64.min64.selector, a, b, cOwner, callbackSelector, errorSelector, totalValueWei, callbackFeeLocalWei);
     }
 
     function max64(
@@ -120,9 +140,11 @@ abstract contract PodLib64 is PodLibBase {
         itUint64 memory b,
         address cOwner,
         bytes4 callbackSelector,
-        bytes4 errorSelector
+        bytes4 errorSelector,
+        uint256 totalValueWei,
+        uint256 callbackFeeLocalWei
     ) internal returns (bytes32) {
-        return _sendThree(IPodExecutor64.max64.selector, a, b, cOwner, callbackSelector, errorSelector);
+        return _sendThree(IPodExecutor64.max64.selector, a, b, cOwner, callbackSelector, errorSelector, totalValueWei, callbackFeeLocalWei);
     }
 
     function eq64(
@@ -130,9 +152,11 @@ abstract contract PodLib64 is PodLibBase {
         itUint64 memory b,
         address cOwner,
         bytes4 callbackSelector,
-        bytes4 errorSelector
+        bytes4 errorSelector,
+        uint256 totalValueWei,
+        uint256 callbackFeeLocalWei
     ) internal returns (bytes32) {
-        return _sendThree(IPodExecutor64.eq64.selector, a, b, cOwner, callbackSelector, errorSelector);
+        return _sendThree(IPodExecutor64.eq64.selector, a, b, cOwner, callbackSelector, errorSelector, totalValueWei, callbackFeeLocalWei);
     }
 
     function ne64(
@@ -140,9 +164,11 @@ abstract contract PodLib64 is PodLibBase {
         itUint64 memory b,
         address cOwner,
         bytes4 callbackSelector,
-        bytes4 errorSelector
+        bytes4 errorSelector,
+        uint256 totalValueWei,
+        uint256 callbackFeeLocalWei
     ) internal returns (bytes32) {
-        return _sendThree(IPodExecutor64.ne64.selector, a, b, cOwner, callbackSelector, errorSelector);
+        return _sendThree(IPodExecutor64.ne64.selector, a, b, cOwner, callbackSelector, errorSelector, totalValueWei, callbackFeeLocalWei);
     }
 
     function ge64(
@@ -150,9 +176,11 @@ abstract contract PodLib64 is PodLibBase {
         itUint64 memory b,
         address cOwner,
         bytes4 callbackSelector,
-        bytes4 errorSelector
+        bytes4 errorSelector,
+        uint256 totalValueWei,
+        uint256 callbackFeeLocalWei
     ) internal returns (bytes32) {
-        return _sendThree(IPodExecutor64.ge64.selector, a, b, cOwner, callbackSelector, errorSelector);
+        return _sendThree(IPodExecutor64.ge64.selector, a, b, cOwner, callbackSelector, errorSelector, totalValueWei, callbackFeeLocalWei);
     }
 
     function le64(
@@ -160,9 +188,11 @@ abstract contract PodLib64 is PodLibBase {
         itUint64 memory b,
         address cOwner,
         bytes4 callbackSelector,
-        bytes4 errorSelector
+        bytes4 errorSelector,
+        uint256 totalValueWei,
+        uint256 callbackFeeLocalWei
     ) internal returns (bytes32) {
-        return _sendThree(IPodExecutor64.le64.selector, a, b, cOwner, callbackSelector, errorSelector);
+        return _sendThree(IPodExecutor64.le64.selector, a, b, cOwner, callbackSelector, errorSelector, totalValueWei, callbackFeeLocalWei);
     }
 
     function lt64(
@@ -170,9 +200,11 @@ abstract contract PodLib64 is PodLibBase {
         itUint64 memory b,
         address cOwner,
         bytes4 callbackSelector,
-        bytes4 errorSelector
+        bytes4 errorSelector,
+        uint256 totalValueWei,
+        uint256 callbackFeeLocalWei
     ) internal returns (bytes32) {
-        return _sendThree(IPodExecutor64.lt64.selector, a, b, cOwner, callbackSelector, errorSelector);
+        return _sendThree(IPodExecutor64.lt64.selector, a, b, cOwner, callbackSelector, errorSelector, totalValueWei, callbackFeeLocalWei);
     }
 
     function mux64(
@@ -181,22 +213,31 @@ abstract contract PodLib64 is PodLibBase {
         itUint64 memory b,
         address cOwner,
         bytes4 callbackSelector,
-        bytes4 errorSelector
+        bytes4 errorSelector,
+        uint256 totalValueWei,
+        uint256 callbackFeeLocalWei
     ) internal returns (bytes32) {
-        IInbox.MpcMethodCall memory mpcMethodCall = MpcAbiCodec.create(IPodExecutor64.mux64.selector, 4)
+        return _forwardTwoWay(
+            _buildMpcMux64(bit, a, b, cOwner),
+            callbackSelector,
+            errorSelector,
+            totalValueWei,
+            callbackFeeLocalWei
+        );
+    }
+
+    function _buildMpcMux64(
+        itBool memory bit,
+        itUint64 memory a,
+        itUint64 memory b,
+        address cOwner
+    ) private view returns (IInbox.MpcMethodCall memory) {
+        return MpcAbiCodec.create(IPodExecutor64.mux64.selector, 4)
             .addArgument(bit)
             .addArgument(a)
             .addArgument(b)
             .addArgument(cOwner)
             .build();
-
-        return IInbox(inbox).sendTwoWayMessage(
-            cotiChainId,
-            mpcExecutorAddress,
-            mpcMethodCall,
-            callbackSelector,
-            errorSelector
-        );
     }
 
     function shl64(
@@ -204,9 +245,13 @@ abstract contract PodLib64 is PodLibBase {
         uint8 s,
         address cOwner,
         bytes4 callbackSelector,
-        bytes4 errorSelector
+        bytes4 errorSelector,
+        uint256 totalValueWei,
+        uint256 callbackFeeLocalWei
     ) internal returns (bytes32) {
-        return _sendShift(IPodExecutor64.shl64.selector, a, s, cOwner, callbackSelector, errorSelector);
+        return _sendShift(
+            IPodExecutor64.shl64.selector, a, s, cOwner, callbackSelector, errorSelector, totalValueWei, callbackFeeLocalWei
+        );
     }
 
     function shr64(
@@ -214,23 +259,30 @@ abstract contract PodLib64 is PodLibBase {
         uint8 s,
         address cOwner,
         bytes4 callbackSelector,
-        bytes4 errorSelector
+        bytes4 errorSelector,
+        uint256 totalValueWei,
+        uint256 callbackFeeLocalWei
     ) internal returns (bytes32) {
-        return _sendShift(IPodExecutor64.shr64.selector, a, s, cOwner, callbackSelector, errorSelector);
+        return _sendShift(
+            IPodExecutor64.shr64.selector, a, s, cOwner, callbackSelector, errorSelector, totalValueWei, callbackFeeLocalWei
+        );
     }
 
     /// @dev Callback `data` is `abi.encode(uint256)` plaintext (executor decrypts MPC rand on COTI).
-    function rand64(address cOwner, bytes4 callbackSelector, bytes4 errorSelector) internal returns (bytes32) {
-        IInbox.MpcMethodCall memory mpcMethodCall =
-            MpcAbiCodec.create(IPodExecutor64.rand64.selector, 1).addArgument(cOwner).build();
-
-        return IInbox(inbox).sendTwoWayMessage(
-            cotiChainId,
-            mpcExecutorAddress,
-            mpcMethodCall,
-            callbackSelector,
-            errorSelector
+    function rand64(
+        address cOwner,
+        bytes4 callbackSelector,
+        bytes4 errorSelector,
+        uint256 totalValueWei,
+        uint256 callbackFeeLocalWei
+    ) internal returns (bytes32) {
+        return _forwardTwoWay(
+            _buildMpcRand64(cOwner), callbackSelector, errorSelector, totalValueWei, callbackFeeLocalWei
         );
+    }
+
+    function _buildMpcRand64(address cOwner) private view returns (IInbox.MpcMethodCall memory) {
+        return MpcAbiCodec.create(IPodExecutor64.rand64.selector, 1).addArgument(cOwner).build();
     }
 
     /// @dev Callback `data` is `abi.encode(uint256)` plaintext.
@@ -238,20 +290,48 @@ abstract contract PodLib64 is PodLibBase {
         uint8 numBits,
         address cOwner,
         bytes4 callbackSelector,
-        bytes4 errorSelector
+        bytes4 errorSelector,
+        uint256 totalValueWei,
+        uint256 callbackFeeLocalWei
     ) internal returns (bytes32) {
-        IInbox.MpcMethodCall memory mpcMethodCall = MpcAbiCodec.create(IPodExecutor64.randBoundedBits64.selector, 2)
+        return _forwardTwoWay(
+            _buildMpcRandBoundedBits64(numBits, cOwner),
+            callbackSelector,
+            errorSelector,
+            totalValueWei,
+            callbackFeeLocalWei
+        );
+    }
+
+    function _buildMpcRandBoundedBits64(uint8 numBits, address cOwner)
+        private
+        view
+        returns (IInbox.MpcMethodCall memory)
+    {
+        return MpcAbiCodec.create(IPodExecutor64.randBoundedBits64.selector, 2)
             .addArgument(uint256(uint8(numBits)))
             .addArgument(cOwner)
             .build();
+    }
 
-        return IInbox(inbox).sendTwoWayMessage(
-            cotiChainId,
-            mpcExecutorAddress,
-            mpcMethodCall,
-            callbackSelector,
-            errorSelector
-        );
+    function _buildMpcThree64(bytes4 selector, itUint64 memory a, itUint64 memory b, address cOwner)
+        private
+        view
+        returns (IInbox.MpcMethodCall memory)
+    {
+        return MpcAbiCodec.create(selector, 3).addArgument(a).addArgument(b).addArgument(cOwner).build();
+    }
+
+    function _buildMpcShift64(bytes4 selector, itUint64 memory a, uint8 s, address cOwner)
+        private
+        view
+        returns (IInbox.MpcMethodCall memory)
+    {
+        return MpcAbiCodec.create(selector, 3)
+            .addArgument(a)
+            .addArgument(uint256(uint8(s)))
+            .addArgument(cOwner)
+            .build();
     }
 
     function _sendThree(
@@ -260,17 +340,16 @@ abstract contract PodLib64 is PodLibBase {
         itUint64 memory b,
         address cOwner,
         bytes4 callbackSelector,
-        bytes4 errorSelector
+        bytes4 errorSelector,
+        uint256 totalValueWei,
+        uint256 callbackFeeLocalWei
     ) private returns (bytes32) {
-        IInbox.MpcMethodCall memory mpcMethodCall =
-            MpcAbiCodec.create(selector, 3).addArgument(a).addArgument(b).addArgument(cOwner).build();
-
-        return IInbox(inbox).sendTwoWayMessage(
-            cotiChainId,
-            mpcExecutorAddress,
-            mpcMethodCall,
+        return _forwardTwoWay(
+            _buildMpcThree64(selector, a, b, cOwner),
             callbackSelector,
-            errorSelector
+            errorSelector,
+            totalValueWei,
+            callbackFeeLocalWei
         );
     }
 
@@ -280,20 +359,16 @@ abstract contract PodLib64 is PodLibBase {
         uint8 s,
         address cOwner,
         bytes4 callbackSelector,
-        bytes4 errorSelector
+        bytes4 errorSelector,
+        uint256 totalValueWei,
+        uint256 callbackFeeLocalWei
     ) private returns (bytes32) {
-        IInbox.MpcMethodCall memory mpcMethodCall = MpcAbiCodec.create(selector, 3)
-            .addArgument(a)
-            .addArgument(uint256(uint8(s)))
-            .addArgument(cOwner)
-            .build();
-
-        return IInbox(inbox).sendTwoWayMessage(
-            cotiChainId,
-            mpcExecutorAddress,
-            mpcMethodCall,
+        return _forwardTwoWay(
+            _buildMpcShift64(selector, a, s, cOwner),
             callbackSelector,
-            errorSelector
+            errorSelector,
+            totalValueWei,
+            callbackFeeLocalWei
         );
     }
 }

@@ -22,6 +22,10 @@ interface IInbox {
         bool isTwoWay;
         bool executed;
         bytes32 sourceRequestId; // This is in case this request is actually a response to another request
+        /// @dev Gas unit budget for executing the **remote** leg on this chain (`call{gas: ...}` cap). Not wei.
+        uint256 targetFee;
+        /// @dev Gas unit budget reserved for the **callback** leg on the source chain (one-way responses). Not wei.
+        uint256 callerFee;
     }
 
     struct Response {
@@ -53,8 +57,9 @@ interface IInbox {
         address targetContract,
         MpcMethodCall calldata methodCall,
         bytes4 callbackSelector,
-        bytes4 errorSelector
-    ) external returns (bytes32);
+        bytes4 errorSelector,
+        uint256 callbackFeeLocalWei
+    ) external payable returns (bytes32);
 
     /// @notice Send a one-way message to a target chain with an error handler.
     /// @param targetChainId The target chain ID.
@@ -67,7 +72,7 @@ interface IInbox {
         address targetContract,
         MpcMethodCall calldata methodCall,
         bytes4 errorSelector
-    ) external returns (bytes32);
+    ) external payable returns (bytes32);
 
     /// @notice Get error information for a failed outgoing request.
     /// @param requestId The request ID to query.

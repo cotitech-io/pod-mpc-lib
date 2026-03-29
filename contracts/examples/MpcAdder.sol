@@ -20,13 +20,16 @@ contract MpcAdder is PodLib {
     /// @notice Send an MPC add request using encrypted inputs.
     /// @param a Encrypted input a (itUint64).
     /// @param b Encrypted input b (itUint64).
-    function add(itUint64 calldata a, itUint64 calldata b) external {
+    /// @param callbackFeeLocalWei Wei slice for callback leg; total inbox payment is `msg.value`.
+    function add(itUint64 calldata a, itUint64 calldata b, uint256 callbackFeeLocalWei) external payable {
         bytes32 requestId = add64(
             a,
             b,
             msg.sender,
             MpcAdder.receiveC.selector,
-            PodLibBase.onDefaultMpcError.selector
+            PodLibBase.onDefaultMpcError.selector,
+            msg.value,
+            callbackFeeLocalWei
         );
         emit AddRequest(requestId);
     }

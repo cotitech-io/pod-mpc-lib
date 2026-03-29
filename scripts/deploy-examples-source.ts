@@ -41,6 +41,8 @@ const main = async () => {
       client: { public: publicClient, wallet: walletClient },
     });
     console.log(`[deploy-examples-source] Millionaire deployed: ${millionaire.address}`);
+    const fundM = await walletClient.sendTransaction({ to: millionaire.address, value: 10n ** 18n });
+    await publicClient.waitForTransactionReceipt({ hash: fundM });
     console.log("[deploy-examples-source] Configuring Millionaire...");
     await millionaire.write.configureCoti([cotiExecutorAddress, cotiChainId]);
     console.log("[deploy-examples-source] Millionaire configured");
@@ -57,12 +59,16 @@ const main = async () => {
     client: { public: publicClient, wallet: walletClient },
   });
   console.log(`[deploy-examples-source] MpcAdder deployed: ${mpcAdder.address}`);
+  const fundAdder = await walletClient.sendTransaction({ to: mpcAdder.address, value: 10n ** 18n });
+  await publicClient.waitForTransactionReceipt({ hash: fundAdder });
   if (!ONLY_MPC_ADDER) {
     console.log("[deploy-examples-source] Deploying PErc20...");
     const pErc20 = await viem.deployContract("PErc20", [inboxAddress], {
       client: { public: publicClient, wallet: walletClient },
     });
     console.log(`[deploy-examples-source] PErc20 deployed: ${pErc20.address}`);
+    const fundPe = await walletClient.sendTransaction({ to: pErc20.address, value: 10n ** 18n });
+    await publicClient.waitForTransactionReceipt({ hash: fundPe });
     console.log("[deploy-examples-source] Configuring PErc20...");
     await pErc20.write.configureCoti([cotiExecutorAddress, cotiChainId]);
     console.log("[deploy-examples-source] PErc20 configured");

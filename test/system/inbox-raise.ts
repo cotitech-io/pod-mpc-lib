@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
-import { before, describe, it } from "node:test";
+import { afterEach, before, describe, it } from "node:test";
 import { network } from "hardhat";
 import { encodeFunctionData, stringToHex, toFunctionSelector } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import {
+  collectInboxFeesAfterTest,
+  DEFAULT_POD_CALLBACK_FEE_WEI,
+  fundContractForInboxFees,
   logStep,
   normalizePrivateKey,
+  podTwoWayWriteOptions,
   receiptWaitOptions,
   requirePrivateKey,
   runCrossChainTwoWayRoundTrip,
@@ -24,6 +28,10 @@ describe("Inbox raise() → error callback (system)", async function () {
   let raiseCoti: any;
   let raiseSepolia: any;
   let raiseSepoliaAsCotiWallet: any;
+
+  afterEach(async function () {
+    if (ctx) await collectInboxFeesAfterTest(ctx);
+  });
 
   before(async function () {
     // `raise` must exist on the COTI inbox. Reused deployments often predate it; force a fresh COTI deploy.
@@ -46,6 +54,8 @@ describe("Inbox raise() → error callback (system)", async function () {
       raiseCoti.address,
     ]);
 
+    await fundContractForInboxFees(hardhatCotiWallet, ctx.sepolia.publicClient, raiseSepolia.address as `0x${string}`);
+
     raiseSepoliaAsCotiWallet = await sepoliaViem.getContractAt("RaiseInboxTestSepolia", raiseSepolia.address, {
       client: { public: ctx.sepolia.publicClient, wallet: hardhatCotiWallet },
     });
@@ -57,7 +67,10 @@ describe("Inbox raise() → error callback (system)", async function () {
 
     // 1) Source chain: enqueue two-way message (error path only in this harness).
     logStep("Hardhat: startRaiseRoundTrip → inbox records outbound request");
-    const txHash = await raiseSepoliaAsCotiWallet.write.startRaiseRoundTrip([expectedPayload]);
+    const txHash = await raiseSepoliaAsCotiWallet.write.startRaiseRoundTrip(
+      [expectedPayload, DEFAULT_POD_CALLBACK_FEE_WEI],
+      podTwoWayWriteOptions()
+    );
     await ctx.sepolia.publicClient.waitForTransactionReceipt({ hash: txHash, ...receiptWaitOptions });
 
     // 2–4) Relay: mine COTI (triggerRaise → raise), load return leg, mine Hardhat (error callback).

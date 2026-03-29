@@ -23,99 +23,99 @@ contract PodTest256 is PodLib {
         lastResult = data;
     }
 
-    function execAdd256(itUint256 calldata a, itUint256 calldata b) external {
+    function execAdd256(itUint256 calldata a, itUint256 calldata b, uint256 callbackFeeLocalWei) external payable {
         _reset();
-        lastRequestId = add256(a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector);
+        lastRequestId = add256(a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector, msg.value, callbackFeeLocalWei);
     }
 
-    function execSub256(itUint256 calldata a, itUint256 calldata b) external {
+    function execSub256(itUint256 calldata a, itUint256 calldata b, uint256 callbackFeeLocalWei) external payable {
         _reset();
-        lastRequestId = sub256(a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector);
+        lastRequestId = sub256(a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector, msg.value, callbackFeeLocalWei);
     }
 
-    function execMul256(itUint256 calldata a, itUint256 calldata b) external {
+    function execMul256(itUint256 calldata a, itUint256 calldata b, uint256 callbackFeeLocalWei) external payable {
         _reset();
-        lastRequestId = mul256(a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector);
+        lastRequestId = mul256(a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector, msg.value, callbackFeeLocalWei);
     }
 
-    function execAnd256(itUint256 calldata a, itUint256 calldata b) external {
+    function execAnd256(itUint256 calldata a, itUint256 calldata b, uint256 callbackFeeLocalWei) external payable {
         _reset();
-        lastRequestId = and256(a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector);
+        lastRequestId = and256(a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector, msg.value, callbackFeeLocalWei);
     }
 
-    function execOr256(itUint256 calldata a, itUint256 calldata b) external {
+    function execOr256(itUint256 calldata a, itUint256 calldata b, uint256 callbackFeeLocalWei) external payable {
         _reset();
-        lastRequestId = or256(a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector);
+        lastRequestId = or256(a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector, msg.value, callbackFeeLocalWei);
     }
 
-    function execXor256(itUint256 calldata a, itUint256 calldata b) external {
+    function execXor256(itUint256 calldata a, itUint256 calldata b, uint256 callbackFeeLocalWei) external payable {
         _reset();
-        lastRequestId = xor256(a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector);
+        lastRequestId = xor256(a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector, msg.value, callbackFeeLocalWei);
     }
 
-    function execMin256(itUint256 calldata a, itUint256 calldata b) external {
+    function execMin256(itUint256 calldata a, itUint256 calldata b, uint256 callbackFeeLocalWei) external payable {
         _reset();
-        lastRequestId = min256(a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector);
+        lastRequestId = min256(a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector, msg.value, callbackFeeLocalWei);
     }
 
-    function execMax256(itUint256 calldata a, itUint256 calldata b) external {
+    function execMax256(itUint256 calldata a, itUint256 calldata b, uint256 callbackFeeLocalWei) external payable {
         _reset();
-        lastRequestId = max256(a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector);
+        lastRequestId = max256(a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector, msg.value, callbackFeeLocalWei);
     }
 
-    function execEq256(itUint256 calldata a, itUint256 calldata b) external {
+    function execEq256(itUint256 calldata a, itUint256 calldata b, uint256 callbackFeeLocalWei) external payable {
         _reset();
-        lastRequestId = eq256(a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector);
+        lastRequestId = eq256(a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector, msg.value, callbackFeeLocalWei);
     }
 
-    function execNe256(itUint256 calldata a, itUint256 calldata b) external {
+    function execNe256(itUint256 calldata a, itUint256 calldata b, uint256 callbackFeeLocalWei) external payable {
         _reset();
-        lastRequestId = ne256(a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector);
+        lastRequestId = ne256(a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector, msg.value, callbackFeeLocalWei);
     }
 
-    function execGe256(itUint256 calldata a, itUint256 calldata b) external {
+    function execGe256(itUint256 calldata a, itUint256 calldata b, uint256 callbackFeeLocalWei) external payable {
         _reset();
-        lastRequestId = ge256(a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector);
+        lastRequestId = ge256(a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector, msg.value, callbackFeeLocalWei);
     }
 
-    function execGt256(itUint256 calldata a, itUint256 calldata b) external {
+    function execGt256(itUint256 calldata a, itUint256 calldata b, uint256 callbackFeeLocalWei) external payable {
         _reset();
-        lastRequestId = gt256(a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector);
+        lastRequestId = gt256(a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector, msg.value, callbackFeeLocalWei);
     }
 
-    function execLe256(itUint256 calldata a, itUint256 calldata b) external {
+    function execLe256(itUint256 calldata a, itUint256 calldata b, uint256 callbackFeeLocalWei) external payable {
         _reset();
-        lastRequestId = le256(a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector);
+        lastRequestId = le256(a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector, msg.value, callbackFeeLocalWei);
     }
 
-    function execLt256(itUint256 calldata a, itUint256 calldata b) external {
+    function execLt256(itUint256 calldata a, itUint256 calldata b, uint256 callbackFeeLocalWei) external payable {
         _reset();
-        lastRequestId = lt256(a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector);
+        lastRequestId = lt256(a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector, msg.value, callbackFeeLocalWei);
     }
 
-    function execMux256(itBool calldata bit, itUint256 calldata a, itUint256 calldata b) external {
+    function execMux256(itBool calldata bit, itUint256 calldata a, itUint256 calldata b, uint256 callbackFeeLocalWei) external payable {
         _reset();
-        lastRequestId = mux256(bit, a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector);
+        lastRequestId = mux256(bit, a, b, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector, msg.value, callbackFeeLocalWei);
     }
 
-    function execShl256(itUint256 calldata a, uint8 s) external {
+    function execShl256(itUint256 calldata a, uint8 s, uint256 callbackFeeLocalWei) external payable {
         _reset();
-        lastRequestId = shl256(a, s, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector);
+        lastRequestId = shl256(a, s, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector, msg.value, callbackFeeLocalWei);
     }
 
-    function execShr256(itUint256 calldata a, uint8 s) external {
+    function execShr256(itUint256 calldata a, uint8 s, uint256 callbackFeeLocalWei) external payable {
         _reset();
-        lastRequestId = shr256(a, s, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector);
+        lastRequestId = shr256(a, s, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector, msg.value, callbackFeeLocalWei);
     }
 
-    function execRand256() external {
+    function execRand256(uint256 callbackFeeLocalWei) external payable {
         _reset();
-        lastRequestId = rand256(msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector);
+        lastRequestId = rand256(msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector, msg.value, callbackFeeLocalWei);
     }
 
-    function execRandBoundedBits256(uint8 numBits) external {
+    function execRandBoundedBits256(uint8 numBits, uint256 callbackFeeLocalWei) external payable {
         _reset();
         lastRequestId =
-            randBoundedBits256(numBits, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector);
+            randBoundedBits256(numBits, msg.sender, this.receivePod.selector, PodLibBase.onDefaultMpcError.selector, msg.value, callbackFeeLocalWei);
     }
 }

@@ -6,6 +6,7 @@ import { ONBOARD_CONTRACT_ADDRESS, transferNative, Wallet as CotiWallet } from "
 import {
   buildEncryptedInput256,
   decryptUint256,
+  fundContractForInboxFees,
   logStep,
   normalizePrivateKey,
   onboardUser,
@@ -14,6 +15,8 @@ import {
   requirePrivateKey,
   runCrossChainTwoWayRoundTrip,
   setupContext,
+  DEFAULT_POD_CALLBACK_FEE_WEI,
+  podTwoWayWriteOptions,
   type MineRequestOptions,
   type TestContext,
 } from "../system/mpc-test-utils.js";
@@ -130,6 +133,8 @@ export async function setupPodTokenTestContext(params: {
     "PODT",
   ]);
 
+  await fundContractForInboxFees(hardhatCotiWallet, base.sepolia.publicClient, pod.address as `0x${string}`);
+
   await podCotiSide.write.setAuthorizedRemote([BigInt(base.chainIds.sepolia), pod.address]);
 
   const podAsCoti = await params.sepoliaViem.getContractAt("PodERC20", pod.address, {
@@ -159,7 +164,10 @@ export async function syncPodBalancesRoundTrip(
   label: string,
   mineOptions?: MineRequestOptions
 ): Promise<ReturnType<typeof runCrossChainTwoWayRoundTrip>> {
-  const txHash = await ctx.podAsCoti.write.syncBalances([[...accounts]]);
+  const txHash = await ctx.podAsCoti.write.syncBalances(
+    [[...accounts], DEFAULT_POD_CALLBACK_FEE_WEI],
+    podTwoWayWriteOptions()
+  );
   await ctx.base.sepolia.publicClient.waitForTransactionReceipt({ hash: txHash, ...receiptWaitOptions });
   return runCrossChainTwoWayRoundTrip(ctx.base, label, {
     ...mineOptions,

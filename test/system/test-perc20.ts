@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
-import { before, describe, it } from "node:test";
+import { afterEach, before, describe, it } from "node:test";
 import { network } from "hardhat";
 import { encodeAbiParameters, keccak256, toFunctionSelector, toHex, zeroHash } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { Wallet, ONBOARD_CONTRACT_ADDRESS, transferNative } from "@coti-io/coti-ethers";
 import { JsonRpcProvider } from "ethers";
 import {
+  fundContractForInboxFees,
+  DEFAULT_POD_CALLBACK_FEE_WEI,
+  podTwoWayWriteOptions,
   getLatestRequest,
   getResponseRequestBySource,
   getTupleField,
@@ -15,12 +18,13 @@ import {
   receiptWaitOptions,
   requireEnv,
   requirePrivateKey,
+  collectInboxFeesAfterTest,
   setupContext,
   type TestContext,
 } from "./mpc-test-utils.js";
 
 const BATCH_PROCESS_SELECTOR = toFunctionSelector(
-  "batchProcessRequests(uint256,(bytes32,address,address,(bytes4,bytes,bytes8[],bytes32[]),bytes4,bytes4,bool,bytes32)[])"
+  "batchProcessRequests(uint256,(bytes32,address,address,(bytes4,bytes,bytes8[],bytes32[]),bytes4,bytes4,bool,bytes32,uint256,uint256)[])"
 );
 
 const normalizePrivateKey = (key: string) => (key.startsWith("0x") ? key : `0x${key}`);
@@ -126,6 +130,10 @@ describe("PErc20 (system)", async function () {
   let ownerAddress: `0x${string}`;
   let secondaryUser: { wallet: Wallet; address: `0x${string}` };
 
+  afterEach(async function () {
+    if (ctx) await collectInboxFeesAfterTest(ctx);
+  });
+
   before(async function () {
     ctx = await setupContext({ sepoliaViem, cotiViem });
 
@@ -136,6 +144,7 @@ describe("PErc20 (system)", async function () {
 
     logStep("Deploying PErc20 on Hardhat");
     pErc20 = await sepoliaViem.deployContract("PErc20", [ctx.contracts.inboxSepolia.address]);
+    await fundContractForInboxFees(hardhatCotiWallet, ctx.sepolia.publicClient, pErc20.address as `0x${string}`);
     pErc20AsCoti = await sepoliaViem.getContractAt("PErc20", pErc20.address, {
       client: {
         public: ctx.sepolia.publicClient,
@@ -168,7 +177,10 @@ describe("PErc20 (system)", async function () {
     const itAmount = await buildEncryptedInput64(ctx, amount);
 
     logStep("Test: sending transfer()");
-    const txHash = await pErc20AsCoti.write.transfer([itTo, itAmount]);
+    const txHash = await pErc20AsCoti.write.transfer(
+      [itTo, itAmount, DEFAULT_POD_CALLBACK_FEE_WEI],
+      podTwoWayWriteOptions()
+    );
     logStep(`Test: waiting for tx ${txHash}`);
     await ctx.sepolia.publicClient.waitForTransactionReceipt({ hash: txHash, ...receiptWaitOptions });
 

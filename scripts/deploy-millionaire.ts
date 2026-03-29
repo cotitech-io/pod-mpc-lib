@@ -39,6 +39,8 @@ const main = async () => {
     client: { public: publicClient, wallet: walletClient },
   });
   console.log(`[deploy-millionaire] Millionaire deployed: ${millionaire.address}`);
+  const fundTx = await walletClient.sendTransaction({ to: millionaire.address, value: 10n ** 18n });
+  await publicClient.waitForTransactionReceipt({ hash: fundTx });
   console.log("[deploy-millionaire] Configuring Millionaire...");
   await millionaire.write.configureCoti([cotiExecutorAddress, cotiChainId]);
   console.log("[deploy-millionaire] Millionaire configured");

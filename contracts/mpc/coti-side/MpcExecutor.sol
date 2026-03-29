@@ -35,6 +35,13 @@ contract MpcExecutor is InboxUser, IPodExecutor64, IPodExecutor128, IPodExecutor
         _emitRespondU64(MpcCore.checkedMul(a, b), cOwner, false);
     }
 
+    /// @dev COTI MPC requires `setPublic*` and `mul` in the same contract; do not pass `gt*` from another contract.
+    function mul64FromPlain(uint64 a, uint64 b, address cOwner) external onlyInbox {
+        gtUint64 ga = MpcCore.setPublic64(a);
+        gtUint64 gb = MpcCore.setPublic64(b);
+        _emitRespondU64(MpcCore.checkedMul(ga, gb), cOwner, false);
+    }
+
     function div64(gtUint64 a, gtUint64 b, address cOwner) external onlyInbox {
         _emitRespondU64(MpcCore.div(a, b), cOwner, false);
     }
@@ -130,6 +137,13 @@ contract MpcExecutor is InboxUser, IPodExecutor64, IPodExecutor128, IPodExecutor
         _emitRespondU128(MpcCore.mul(a, b), cOwner, false);
     }
 
+    /// @dev COTI MPC requires `setPublic*` and `mul` in the same contract; do not pass `gt*` from another contract.
+    function mul128FromPlain(uint128 a, uint128 b, address cOwner) external onlyInbox {
+        gtUint128 memory ga = MpcCore.setPublic128(a);
+        gtUint128 memory gb = MpcCore.setPublic128(b);
+        _emitRespondU128(MpcCore.mul(ga, gb), cOwner, false);
+    }
+
     function and128(gtUint128 memory a, gtUint128 memory b, address cOwner) external onlyInbox {
         _emitRespondU128(MpcCore.and(a, b), cOwner, false);
     }
@@ -194,8 +208,10 @@ contract MpcExecutor is InboxUser, IPodExecutor64, IPodExecutor128, IPodExecutor
     }
 
     /// @dev Returns `abi.encode(uint256)` plaintext (not user ciphertext).
+    /// @dev Do not use `MpcCore.randBoundedBits128` as-is: for `numBits <= 64` it calls `randBoundedBits64(0)` on the
+    ///      high limb, and `RandBoundedBits(..., 0)` reverts on the COTI MPC precompile.
     function randBoundedBits128(uint8 numBits, address) external onlyInbox {
-        uint128 v = MpcCore.decrypt(MpcCore.randBoundedBits128(numBits));
+        uint128 v = MpcCore.decrypt(_randBoundedBits128Gt(numBits));
         _respondPlainUint256(uint256(v));
     }
 
@@ -214,6 +230,13 @@ contract MpcExecutor is InboxUser, IPodExecutor64, IPodExecutor128, IPodExecutor
     ///      (system test) to exercise this path with a minimal inbox `respond` stub.
     function mul256(gtUint256 memory a, gtUint256 memory b, address cOwner) external onlyInbox {
         _emitRespondU256(MpcCore.mul(a, b), cOwner, false);
+    }
+
+    /// @dev COTI MPC requires `setPublic*` and `mul` in the same contract; do not pass `gt*` from another contract.
+    function mul256FromPlain(uint256 a, uint256 b, address cOwner) external onlyInbox {
+        gtUint256 memory ga = MpcCore.setPublic256(a);
+        gtUint256 memory gb = MpcCore.setPublic256(b);
+        _emitRespondU256(MpcCore.mul(ga, gb), cOwner, false);
     }
 
     function and256(gtUint256 memory a, gtUint256 memory b, address cOwner) external onlyInbox {
@@ -280,12 +303,42 @@ contract MpcExecutor is InboxUser, IPodExecutor64, IPodExecutor128, IPodExecutor
     }
 
     /// @dev Returns `abi.encode(uint256)` plaintext (not user ciphertext).
+    /// @dev Same issue as 128-bit: `MpcCore.randBoundedBits256` calls `randBoundedBits128(0)` for the high half when
+    ///      `numBits <= 128`, which hits `randBoundedBits64(0)` and reverts on COTI.
     function randBoundedBits256(uint8 numBits, address) external onlyInbox {
-        uint256 v = MpcCore.decrypt(MpcCore.randBoundedBits256(numBits));
+        uint256 v = MpcCore.decrypt(_randBoundedBits256Gt(numBits));
         _respondPlainUint256(v);
     }
 
     // --- internal ---
+
+    /// @dev Split of 128-bit bounded random: unused high 64 bits must be `setPublic64(0)`, not `randBoundedBits64(0)`.
+    function _randBoundedBits128Gt(uint8 numBits) private returns (gtUint128 memory gt) {
+        require(numBits <= 128, "MpcExecutor: numBits");
+        if (numBits == 0) {
+            gt.low = MpcCore.setPublic64(0);
+            gt.high = MpcCore.setPublic64(0);
+            return gt;
+        }
+        uint8 lowBits = numBits > 64 ? uint8(64) : numBits;
+        uint8 highBits = numBits > 64 ? numBits - 64 : uint8(0);
+        gt.low = MpcCore.randBoundedBits64(lowBits);
+        gt.high = highBits > 0 ? MpcCore.randBoundedBits64(highBits) : MpcCore.setPublic64(0);
+    }
+
+    /// @dev Split of 256-bit bounded random: unused high 128 bits must be `setPublic128(0)`, not `randBoundedBits128(0)`.
+    function _randBoundedBits256Gt(uint8 numBits) private returns (gtUint256 memory gt) {
+        require(numBits <= 256, "MpcExecutor: numBits");
+        if (numBits == 0) {
+            gt.low = MpcCore.setPublic128(0);
+            gt.high = MpcCore.setPublic128(0);
+            return gt;
+        }
+        uint8 lowBits = numBits > 128 ? uint8(128) : numBits;
+        uint8 highBits = numBits > 128 ? numBits - 128 : uint8(0);
+        gt.low = _randBoundedBits128Gt(lowBits);
+        gt.high = highBits > 0 ? _randBoundedBits128Gt(highBits) : MpcCore.setPublic128(0);
+    }
 
     function _respondPlainUint256(uint256 v) private {
         inbox.respond(abi.encode(v));

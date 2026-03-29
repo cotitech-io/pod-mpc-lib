@@ -42,6 +42,8 @@ contract RaiseInboxTestSepolia is InboxUser {
         cotiRaiseContract = cotiRaiseContract_;
     }
 
+    receive() external payable {}
+
     function onSuccess(bytes calldata) external view onlyInbox {
         revert ExpectedRaisePathNotSuccess();
     }
@@ -53,7 +55,8 @@ contract RaiseInboxTestSepolia is InboxUser {
     }
 
     /// @notice Full calldata for `RaiseInboxTestCoti.triggerRaise(bytes)`.
-    function startRaiseRoundTrip(bytes calldata raisePayload) external {
+    /// @param callbackFeeLocalWei Caller-estimated wei reserved for the callback leg; total payment is `msg.value`.
+    function startRaiseRoundTrip(bytes calldata raisePayload, uint256 callbackFeeLocalWei) external payable {
         bytes memory data = abi.encodeWithSelector(TRIGGER_RAISE, raisePayload);
         IInbox.MpcMethodCall memory methodCall = IInbox.MpcMethodCall({
             selector: bytes4(0),
@@ -61,12 +64,16 @@ contract RaiseInboxTestSepolia is InboxUser {
             datatypes: new bytes8[](0),
             datalens: new bytes32[](0)
         });
-        IInbox(inbox).sendTwoWayMessage(
+        require(callbackFeeLocalWei >= 1, "RaiseInboxTestSepolia: callback fee min");
+        require(callbackFeeLocalWei <= msg.value, "RaiseInboxTestSepolia: callback exceeds msg.value");
+        require(address(this).balance >= msg.value, "RaiseInboxTestSepolia: inbox fee");
+        IInbox(inbox).sendTwoWayMessage{value: msg.value}(
             cotiChainId,
             cotiRaiseContract,
             methodCall,
             this.onSuccess.selector,
-            this.onRaiseError.selector
+            this.onRaiseError.selector,
+            callbackFeeLocalWei
         );
     }
 }

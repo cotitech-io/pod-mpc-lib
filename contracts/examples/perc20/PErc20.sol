@@ -38,14 +38,17 @@ contract PErc20 is PodLib {
      * @dev **Gotcha:** `IPErc20Coti.transferFrom` receives `msg.sender` as `from` on COTI; the PoD `from` identity must match
      *      how COTI hashes participants. **Gotcha:** uses {PodLibBase.onDefaultMpcError} for failures—balances are not rolled back here.
      */
-    function transfer(itUint256 calldata to, itUint64 calldata amount) external {
+    /// @param callbackFeeLocalWei Caller-estimated wei for the callback leg; total is `msg.value`.
+    function transfer(itUint256 calldata to, itUint64 calldata amount, uint256 callbackFeeLocalWei) external payable {
         IInbox.MpcMethodCall memory methodCall = MpcAbiCodec.create(IPErc20Coti.transferFrom.selector, 3)
             .addArgument(msg.sender)
             .addArgument(to)
             .addArgument(amount)
             .build();
 
-        IInbox(inbox).sendTwoWayMessage(
+        _sendTwoWayWithFee(
+            msg.value,
+            callbackFeeLocalWei,
             cotiChainId,
             mpcExecutorAddress,
             methodCall,

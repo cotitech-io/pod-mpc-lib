@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { before, describe, it } from "node:test";
+import { afterEach, before, describe, it } from "node:test";
 import { network } from "hardhat";
 import { decryptUint } from "@coti-io/coti-sdk-typescript";
 import { privateKeyToAccount } from "viem/accounts";
@@ -7,6 +7,7 @@ import { createWalletClient, custom, parseEther } from "viem";
 import {
   buildEncryptedInput,
   envOrEmpty,
+  fundContractForInboxFees,
   getRequests,
   getResponseRequestBySource,
   getTupleField,
@@ -18,6 +19,9 @@ import {
   setupContext,
   type TestContext,
   getCotiCrypto,
+  collectInboxFeesAfterTest,
+  DEFAULT_POD_CALLBACK_FEE_WEI,
+  podTwoWayWriteOptions,
 } from "./mpc-test-utils.js";
 
 describe("Millionaire (system)", async function () {
@@ -28,6 +32,10 @@ describe("Millionaire (system)", async function () {
   let walletA: any;
   let walletB: any;
   let userKeyB = "";
+
+  afterEach(async function () {
+    if (ctx) await collectInboxFeesAfterTest(ctx);
+  });
 
   const decodeCtBool = (value: unknown): bigint => {
     return (
@@ -83,6 +91,7 @@ describe("Millionaire (system)", async function () {
 
   const deployMillionaire = async () => {
     const deployed = await sepoliaViem.deployContract("Millionaire", [ctx.contracts.inboxSepolia.address]);
+    await fundContractForInboxFees(walletA, ctx.sepolia.publicClient, deployed.address as `0x${string}`);
     const millionaire = await sepoliaViem.getContractAt("Millionaire", deployed.address, {
       client: { public: ctx.sepolia.publicClient, wallet: walletA },
     });
@@ -119,7 +128,10 @@ describe("Millionaire (system)", async function () {
 
     const countBefore = await ctx.contracts.inboxSepolia.read.getRequestsLen();
     logStep(`${label}: sending reveal`);
-    txHash = await millionaire.write.reveal([walletA.account.address, walletB.account.address]);
+    txHash = await millionaire.write.reveal(
+      [walletA.account.address, walletB.account.address, DEFAULT_POD_CALLBACK_FEE_WEI],
+      podTwoWayWriteOptions()
+    );
     await ctx.sepolia.publicClient.waitForTransactionReceipt({ hash: txHash, ...receiptWaitOptions });
     const countAfter = await ctx.contracts.inboxSepolia.read.getRequestsLen();
     assert.equal(Number(countAfter), Number(countBefore) + 2);

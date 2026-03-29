@@ -83,12 +83,14 @@ export class RelayHelper {
       chainId: Number(this.getTupleField<bigint>(request, "targetChainId", 1) ?? 0n),
       targetContract: this.getTupleField<`0x${string}`>(request, "targetContract", 2),
       sender: this.getTupleField<`0x${string}`>(request, "originalSender", 5),
-      data: this.getTupleField<`0x${string}`>(request, "data", 3),
+      methodCall: this.getTupleField(request, "methodCall", 3),
       callbackSelector: this.getTupleField<`0x${string}`>(request, "callbackSelector", 7),
       errorSelector: this.getTupleField<`0x${string}`>(request, "errorSelector", 8),
       isTwoWay: this.getTupleField<boolean>(request, "isTwoWay", 9),
       sourceRequestId: this.getTupleField<`0x${string}`>(request, "sourceRequestId", 11),
       executed: this.getTupleField<boolean>(request, "executed", 10),
+      targetFee: this.getTupleField<bigint>(request, "targetFee", 12) ?? 0n,
+      callerFee: this.getTupleField<bigint>(request, "callerFee", 13) ?? 0n,
     }));
   }
 
@@ -143,15 +145,21 @@ export class RelayHelper {
                   requestId: msg.requestId,
                   sourceContract: msg.sender as `0x${string}`,
                   targetContract: msg.targetContract ?? "0x0000000000000000000000000000000000000000",
-                  data: msg.data ?? "0x",
+                  methodCall: msg.methodCall ?? {
+                    selector: "0x00000000" as `0x${string}`,
+                    data: "0x" as `0x${string}`,
+                    datatypes: [] as readonly `0x${string}`[],
+                    datalens: [] as readonly `0x${string}`[],
+                  },
                   callbackSelector: msg.callbackSelector ?? "0x00000000",
                   errorSelector: msg.errorSelector ?? "0x00000000",
                   isTwoWay: Boolean(msg.isTwoWay),
                   sourceRequestId:
                     msg.sourceRequestId ?? "0x0000000000000000000000000000000000000000000000000000000000000000",
+                  targetFee: msg.targetFee ?? 0n,
+                  callerFee: msg.callerFee ?? 0n,
                 },
               ],
-              [],
             ],
           } as any);
           relayed++;
@@ -210,24 +218,38 @@ export class RelayHelper {
       requestId: `0x${string}`;
       sourceContract: `0x${string}`;
       targetContract: `0x${string}`;
-      data: `0x${string}`;
+      methodCall: {
+        selector: `0x${string}`;
+        data: `0x${string}`;
+        datatypes: readonly `0x${string}`[];
+        datalens: readonly `0x${string}`[];
+      };
       callbackSelector: `0x${string}`;
       errorSelector: `0x${string}`;
       isTwoWay: boolean;
       sourceRequestId: `0x${string}`;
+      targetFee: bigint;
+      callerFee: bigint;
     }> = [];
 
     for (const request of requests) {
       const requestId = this.getTupleField<`0x${string}`>(request, "requestId", 0);
       const targetChainId = this.getTupleField<bigint>(request, "targetChainId", 1);
       const targetContract = this.getTupleField<`0x${string}`>(request, "targetContract", 2);
-      const data = this.getTupleField<`0x${string}`>(request, "data", 3);
+      const methodCall = this.getTupleField<{
+        selector: `0x${string}`;
+        data: `0x${string}`;
+        datatypes: readonly `0x${string}`[];
+        datalens: readonly `0x${string}`[];
+      }>(request, "methodCall", 3);
       const callbackSelector = this.getTupleField<`0x${string}`>(request, "callbackSelector", 7);
       const errorSelector = this.getTupleField<`0x${string}`>(request, "errorSelector", 8);
       const originalSender = this.getTupleField<`0x${string}`>(request, "originalSender", 5);
       const isTwoWay = this.getTupleField<boolean>(request, "isTwoWay", 9);
       const executed = this.getTupleField<boolean>(request, "executed", 10);
       const sourceRequestId = this.getTupleField<`0x${string}`>(request, "sourceRequestId", 11);
+      const targetFee = this.getTupleField<bigint>(request, "targetFee", 12) ?? 0n;
+      const callerFee = this.getTupleField<bigint>(request, "callerFee", 13) ?? 0n;
 
       if (!requestId || requestId === "0x0000000000000000000000000000000000000000000000000000000000000000") {
         continue;
@@ -259,12 +281,14 @@ export class RelayHelper {
         requestId: requestId!,
         sourceContract: originalSender!,
         targetContract: targetContract!,
-        data: data!,
+        methodCall: methodCall!,
         callbackSelector: callbackSelector ?? "0x00000000",
         errorSelector: errorSelector ?? "0x00000000",
         isTwoWay: Boolean(isTwoWay),
         sourceRequestId:
           sourceRequestId ?? "0x0000000000000000000000000000000000000000000000000000000000000000",
+        targetFee,
+        callerFee,
       });
     }
 
@@ -278,7 +302,7 @@ export class RelayHelper {
       functionName: "batchProcessRequests",
       chain: { ...hardhat, id: this.chain2Id },
       account: this.account,
-      args: [BigInt(this.chain1Id), mined, []],
+      args: [BigInt(this.chain1Id), mined],
     } as any);
     await this.chain2Client.waitForTransactionReceipt({ hash: mineHash });
 

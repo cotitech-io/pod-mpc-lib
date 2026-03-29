@@ -58,6 +58,8 @@ export type Request = {
   isTwoWay: boolean;
   executed: boolean;
   sourceRequestId: `0x${string}`;
+  targetFee: bigint;
+  callerFee: bigint;
 };
 
 // Reads a tuple field by name or index.
@@ -94,6 +96,138 @@ export const logStep = (message: string) => {
 
 // Returns a receipt wait config with consistent polling.
 export const receiptWaitOptions = { timeout: 300_000, pollingInterval: 2_000 };
+
+/** Native ETH for contracts that pay fixed inbox fees ({PodLibBase.INBOX_TWO_WAY_FEE_WEI}, etc.). */
+export const fundContractForInboxFees = async (
+  walletClient: any,
+  publicClient: any,
+  contractAddress: `0x${string}`,
+  wei: bigint = 10n ** 18n
+) => {
+  const hash = await walletClient.sendTransaction({
+    to: contractAddress,
+    value: wei,
+  });
+  await publicClient.waitForTransactionReceipt({ hash, ...receiptWaitOptions });
+};
+
+/** Default `msg.value` for two-way Pod / inbox calls (`totalValueWei`); split with `callbackFeeLocalWei` in the function args. */
+export const DEFAULT_POD_TWO_WAY_VALUE_WEI = 10n ** 17n;
+/** Default callback wei slice for two-way Pod calls (must be `<` total and satisfy {InboxFeeManager} min gas units). */
+export const DEFAULT_POD_CALLBACK_FEE_WEI = 5n * 10n ** 16n;
+
+/**
+ * {InboxMiner} uses `Request.targetFee` as the subcall gas budget (`target.call{gas: targetFee}(...)`).
+ * Remote one-way responses (e.g. COTI → Hardhat callback) often carry `targetFee: 0`; mining that as-is
+ * gives the callee zero gas, so callbacks like `receiveC` never succeed and ciphertext slots stay zero.
+ * Use a budget large enough for worst-case Pod callbacks: `ctUint256` / `receiveC(bytes)` decodes much more
+ * than `ctUint128` (~350k was enough for 128-bit; 256-bit OOG leaves stale `_result` and failing decrypt tests).
+ * EIP-150 caps forwarded gas to `63/64 * gasleft()` before `call{gas: targetFee}` — the outer tx must stay well
+ * above `targetFee` or the subcall silently OOGs while `batchProcessRequests` still succeeds and records `errors`.
+ */
+export const DEFAULT_MINED_TARGET_EXECUTION_GAS = 2_500_000n;
+
+/** Extra gas on the `batchProcessRequests` tx so the inbox can forward `targetFee` to the subcall (EIP-150). */
+const MIN_BATCH_TX_GAS_HEADROOM = 4_000_000n;
+
+/**
+ * Minimum gas limit for the outer `batchProcessRequests` tx so `InboxMiner` can forward the full
+ * `targetFee` stipend to `targetContract.call{gas: targetFee}(...)`. EIP-150 caps the child frame to
+ * `63/64 * gasleft()` at the CALL opcode; without `gasleft() >= ceil(targetFee * 64/63)` the subcall
+ * OOGs while the batch tx still succeeds and records `errors` (misread as an MPC/precompile revert).
+ */
+function minBatchTxGasForInnerStipend(targetFee: bigint): bigint {
+  if (targetFee === 0n) return 0n;
+  return (targetFee * 64n + 62n) / 63n + MIN_BATCH_TX_GAS_HEADROOM;
+}
+
+/**
+ * Largest `Request.targetFee` (inner stipend gas units) such that `minBatchTxGasForInnerStipend(T)` fits in
+ * `blockGasLimit` (COTI testnet blocks are ~120M gas; larger fees make the outer mine tx impossible).
+ */
+function maxCotiTargetFeeForBlock(blockGasLimit: bigint): bigint {
+  if (blockGasLimit <= MIN_BATCH_TX_GAS_HEADROOM) return 0n;
+  return ((blockGasLimit - MIN_BATCH_TX_GAS_HEADROOM) * 63n - 62n) / 64n;
+}
+
+/** COTI RPC rejects txs whose total fee exceeds ~1 ETH; cap `maxFeePerGas` so `gas * maxFeePerGas` stays under budget. */
+async function applyCotiBatchTxFeePerGasCap(
+  publicClient: any,
+  gas: bigint,
+  maxTxFeeWei: bigint,
+  writeOptions: {
+    account: any;
+    gas?: bigint;
+    maxFeePerGas?: bigint;
+    maxPriorityFeePerGas?: bigint;
+    gasPrice?: bigint;
+  }
+): Promise<void> {
+  if (gas === 0n) return;
+  const maxWeiPerGas = maxTxFeeWei / gas;
+  if (maxWeiPerGas === 0n) {
+    throw new Error(
+      `[mpc-test] COTI mine: gas=${gas} needs a tx fee > COTI_MAX_TX_FEE_WEI (${maxTxFeeWei}); raise the env cap or lower mined targetFee`
+    );
+  }
+  try {
+    const fees = await publicClient.estimateFeesPerGas();
+    const estMax = fees.maxFeePerGas ?? (await publicClient.getGasPrice());
+    const estPriority = fees.maxPriorityFeePerGas ?? 1n;
+    const maxFeePerGas = estMax < maxWeiPerGas ? estMax : maxWeiPerGas;
+    const maxPriorityFeePerGas = estPriority < maxFeePerGas ? estPriority : maxFeePerGas;
+    const block = await publicClient.getBlock({ blockTag: "latest" });
+    const base = block.baseFeePerGas;
+    if (base !== undefined && base !== null && maxFeePerGas < base) {
+      throw new Error(
+        `[mpc-test] COTI mine: maxFeePerGas would be capped to ${maxWeiPerGas} wei/gas (tx fee budget / gas) but base fee is ${base}. Raise COTI_MAX_TX_FEE_WEI or wait for a lower base fee.`
+      );
+    }
+    writeOptions.maxFeePerGas = maxFeePerGas;
+    writeOptions.maxPriorityFeePerGas = maxPriorityFeePerGas;
+  } catch (e) {
+    if (e instanceof Error && e.message.includes("COTI mine:")) throw e;
+    const gp = await publicClient.getGasPrice();
+    writeOptions.gasPrice = gp < maxWeiPerGas ? gp : maxWeiPerGas;
+  }
+}
+
+/** Hardhat EDR caps a single transaction at 2^24 gas; higher limits are rejected before broadcast. */
+export const HARDHAT_EDR_TX_GAS_CAP = 16_777_216n;
+
+/** viem `writeContract` options attaching the default two-way native payment. */
+export function podTwoWayWriteOptions(): { value: bigint } {
+  return { value: DEFAULT_POD_TWO_WAY_VALUE_WEI };
+}
+
+/** Minimum context for sweeping native fees from both inbox deployments. */
+export type InboxFeeSweepContext = {
+  sepolia: TestContext["sepolia"];
+  coti: TestContext["coti"];
+  contracts: { inboxSepolia: any; inboxCoti: any };
+};
+
+/**
+ * Calls `collectFees()` on Hardhat and COTI inbox contracts (owner-only) so test runs do not strand ETH on the inbox.
+ * Intended for `afterEach` in cross-chain integration tests. Skips when balance is zero; logs and continues on failure
+ * (e.g. reused inbox with a different owner).
+ */
+export async function collectInboxFeesAfterTest(ctx: InboxFeeSweepContext): Promise<void> {
+  const { inboxSepolia, inboxCoti } = ctx.contracts;
+  const sweep = async (label: string, publicClient: any, wallet: any, inbox: any) => {
+    const addr = inbox.address as `0x${string}`;
+    const bal = await publicClient.getBalance({ address: addr });
+    if (bal === 0n) return;
+    try {
+      const hash = await inbox.write.collectFees({ account: wallet.account });
+      await publicClient.waitForTransactionReceipt({ hash, ...receiptWaitOptions });
+    } catch (e) {
+      logStep(`collectInboxFeesAfterTest(${label}): ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+  await sweep("Sepolia", ctx.sepolia.publicClient, ctx.sepolia.wallet, inboxSepolia);
+  await sweep("COTI", ctx.coti.publicClient, ctx.coti.wallet, inboxCoti);
+}
 
 // Onboards a user on COTI and returns the AES key.
 const aesKeyCache = new Map<string, string>();
@@ -173,6 +307,8 @@ export const parseRequest = (raw: any): Request => {
     isTwoWay: getTupleField(raw, "isTwoWay", 9),
     executed: getTupleField(raw, "executed", 10),
     sourceRequestId: getTupleField(raw, "sourceRequestId", 11),
+    targetFee: (getTupleField(raw, "targetFee", 12) as bigint | undefined) ?? 0n,
+    callerFee: (getTupleField(raw, "callerFee", 13) as bigint | undefined) ?? 0n,
   };
 };
 
@@ -197,6 +333,16 @@ export const getRequest = async (inbox: any, requestId: `0x${string}`): Promise<
 export const getRequests = async (inbox: any, from: number, len: number): Promise<Request[]> => {
   const raw = await inbox.read.getRequests([from, len]);
   return (raw as any[]).map(parseRequest);
+};
+
+const envBigIntOr = (key: string, fallback: bigint): bigint => {
+  const raw = process.env[key]?.trim();
+  if (!raw) return fallback;
+  try {
+    return BigInt(raw);
+  } catch {
+    return fallback;
+  }
 };
 
 /** Result of mineRequest; use requestIdUsed for getResponseRequestBySource / getInboxResponse. */
@@ -227,7 +373,9 @@ export type MineRequestOptions = {
 };
 
 // Mines a source request on the target inbox and waits for confirmation.
-// Computes next expected requestId so mined nonces stay contiguous; pass nonceOverride to force a nonce.
+// Uses `request.requestId` from the source inbox (e.g. Hardhat outbox) so the mined batch matches the
+// actual outbound message. Deriving the id only from the target inbox `lastIncomingRequestId` can desync
+// after other tests, replays, or partial round-trips. Pass `nonceOverride` only when you must synthesize an id.
 export const mineRequest = async (
   ctx: MineRequestContext,
   chain: "coti" | "sepolia",
@@ -247,38 +395,66 @@ export const mineRequest = async (
   const latestMinedRequestId = await inbox.read.lastIncomingRequestId([sourceChainId]);
   logStep(`${label}: latest mined request on ${chainLabel} is ${latestMinedRequestId.toString()}`);
 
-  // Compute next expected requestId so mined nonces stay contiguous (or use override).
-  let nextNonce: number;
-  const zeroHash =
-    "0x0000000000000000000000000000000000000000000000000000000000000000";
+  let nextRequestId: `0x${string}`;
   if (options?.nonceOverride !== undefined) {
-    nextNonce = options.nonceOverride;
-    logStep(`${label}: using nonce override ${nextNonce}`);
+    nextRequestId = (await inbox.read.getRequestId([
+      sourceChainId,
+      BigInt(options.nonceOverride),
+    ])) as `0x${string}`;
+    logStep(`${label}: nonceOverride ${options.nonceOverride} → requestId ${nextRequestId}`);
   } else {
-    const lastId =
-      typeof latestMinedRequestId === "string"
-        ? latestMinedRequestId
-        : String(latestMinedRequestId);
-    if (!lastId || lastId === zeroHash) {
-      nextNonce = 1;
-    } else {
-      const unpacked = await inbox.read.unpackRequestId([latestMinedRequestId]);
-      const lastNonce = Number(getTupleField(unpacked, "nonce", 1));
-      nextNonce = lastNonce + 1;
-    }
+    nextRequestId = request.requestId;
+    logStep(`${label}: using request.requestId ${nextRequestId} for batchProcessRequests`);
   }
-  const nextRequestId = (await inbox.read.getRequestId([
-    sourceChainId,
-    nextNonce,
-  ])) as `0x${string}`;
-  logStep(`${label}: using requestId ${nextRequestId} (nonce ${nextNonce}) for batchProcessRequests`);
 
   logStep(`${label}: calling batchProcessRequests on ${chainLabel}`);
-  const writeOptions: { account: any; gas?: bigint } = {
+  let targetFeeForMine =
+    request.targetFee > 0n ? request.targetFee : DEFAULT_MINED_TARGET_EXECUTION_GAS;
+  const writeOptions: {
+    account: any;
+    gas?: bigint;
+    maxFeePerGas?: bigint;
+    maxPriorityFeePerGas?: bigint;
+    gasPrice?: bigint;
+  } = {
     account: walletClient?.account,
   };
-  if (options?.gas !== undefined) {
-    writeOptions.gas = options.gas;
+  // When targetFee=0 (typical COTI→Hardhat callback): substitute a subcall stipend; outer tx must
+  // forward it (EIP-150). When targetFee>0: `targetFee` is gas units for the inner call — outer tx
+  // gas must still exceed `ceil(targetFee*64/63)+headroom` or the subcall OOGs while the batch succeeds.
+  if (request.targetFee === 0n) {
+    const minBatchTxGas = targetFeeForMine + MIN_BATCH_TX_GAS_HEADROOM;
+    writeOptions.gas =
+      options?.gas !== undefined && options.gas > minBatchTxGas ? options.gas : minBatchTxGas;
+  } else {
+    if (chain === "coti") {
+      const blockGasLimit = envBigIntOr("COTI_BLOCK_GAS_LIMIT", 120_000_000n);
+      const maxT = maxCotiTargetFeeForBlock(blockGasLimit);
+      if (targetFeeForMine > maxT) {
+        logStep(
+          `${label}: capping targetFee ${targetFeeForMine} → ${maxT} (COTI block gas ${blockGasLimit}, EIP-150 outer tx)`
+        );
+        targetFeeForMine = maxT;
+      }
+    }
+    const minBatchTxGas = minBatchTxGasForInnerStipend(targetFeeForMine);
+    let gas = options?.gas !== undefined && options.gas > minBatchTxGas ? options.gas : minBatchTxGas;
+    // Pod tests use Hardhat EDR as "Sepolia"; EDR rejects tx gas > 16M. The return-leg callback is cheap;
+    // `targetFee` on the response request can still mirror COTI fee-budget units — cap the outer tx here.
+    if (chain === "sepolia" && gas > HARDHAT_EDR_TX_GAS_CAP) {
+      gas = HARDHAT_EDR_TX_GAS_CAP;
+    }
+    if (chain === "coti") {
+      const blockGasLimit = envBigIntOr("COTI_BLOCK_GAS_LIMIT", 120_000_000n);
+      if (gas > blockGasLimit) {
+        gas = blockGasLimit;
+      }
+    }
+    writeOptions.gas = gas;
+    if (chain === "coti") {
+      const maxTxFeeWei = envBigIntOr("COTI_MAX_TX_FEE_WEI", 1_000_000_000_000_000_000n);
+      await applyCotiBatchTxFeePerGasCap(publicClient, gas, maxTxFeeWei, writeOptions);
+    }
   }
   const txHash = (await inbox.write.batchProcessRequests(
     [
@@ -293,13 +469,41 @@ export const mineRequest = async (
           errorSelector: request.errorSelector ?? "0x00000000",
           isTwoWay: request.isTwoWay,
           sourceRequestId: request.sourceRequestId,
+          targetFee: targetFeeForMine,
+          callerFee: request.callerFee,
         },
       ],
     ],
     writeOptions
   )) as `0x${string}`;
   logStep(`${label}: waiting for ${chainLabel} tx ${txHash}`);
-  await publicClient.waitForTransactionReceipt({ hash: txHash, ...receiptWaitOptions });
+  const receipt = await publicClient.waitForTransactionReceipt({
+    hash: txHash,
+    ...receiptWaitOptions,
+  });
+  if (receipt.status !== "success") {
+    throw new Error(
+      `${label}: ${chainLabel} batchProcessRequests tx reverted (status=${receipt.status}): ${txHash}`
+    );
+  }
+  // Return-leg mines on Hardhat often use substituted `targetFee`; if the subcall OOGs/reverts, `_result` stays stale.
+  if (chain === "sepolia") {
+    const rawErr = await inbox.read.errors([nextRequestId]);
+    const errRequestId = getTupleField(rawErr, "requestId", 0) as `0x${string}` | undefined;
+    const errorCode = getTupleField(rawErr, "errorCode", 1) as bigint | number | undefined;
+    if (
+      errRequestId &&
+      errRequestId !== "0x0000000000000000000000000000000000000000000000000000000000000000" &&
+      errorCode !== undefined &&
+      BigInt(errorCode) === 1n
+    ) {
+      const errorMessage = getTupleField(rawErr, "errorMessage", 2);
+      throw new Error(
+        `${label}: callback subcall failed on ${chainLabel} (requestId=${nextRequestId}) errorCode=${errorCode} ` +
+          `errorMessage=${String(errorMessage)}`
+      );
+    }
+  }
   return { txHash, requestIdUsed: nextRequestId };
 };
 
@@ -355,18 +559,11 @@ export const runCrossChainTwoWayRoundTrip = async (
   return { outboundRequest, cotiIncomingRequestId, returnLegRequest, sepoliaRelayTxHash };
 };
 
-/** Default gas for mining 128-bit MPC requests on COTI testnet (batchProcessRequests). */
-export const DEFAULT_COTI_MINE_GAS_MPC_128 = 8_000_000n;
-
-const envBigIntOr = (key: string, fallback: bigint): bigint => {
-  const raw = process.env[key]?.trim();
-  if (!raw) return fallback;
-  try {
-    return BigInt(raw);
-  } catch {
-    return fallback;
-  }
-};
+/**
+ * Default gas for mining 128-bit MPC requests on COTI (`batchProcessRequests`).
+ * `randBoundedBits128` and similar paths need more than 8M on many testnets; override with `COTI_MINE_GAS_MPC_128`.
+ */
+export const DEFAULT_COTI_MINE_GAS_MPC_128 = envBigIntOr("COTI_MINE_GAS_MPC_128", 30_000_000n);
 
 /**
  * Default gas for mining 256-bit MPC on COTI (`batchProcessRequests` → `MpcExecutor.mul256` etc.).
@@ -438,7 +635,7 @@ export const buildEncryptedInput = async (
   value: bigint
 ): Promise<{ ciphertext: bigint; signature: `0x${string}` }> => {
   const functionSelector = toFunctionSelector(
-      "batchProcessRequests(uint256,(bytes32,address,address,(bytes4,bytes,bytes8[],bytes32[]),bytes4,bytes4,bool,bytes32)[])"
+      "batchProcessRequests(uint256,(bytes32,address,address,(bytes4,bytes,bytes8[],bytes32[]),bytes4,bytes4,bool,bytes32,uint256,uint256)[])"
   );
   const inputText = await ctx.crypto.cotiEncryptWallet.encryptValue(
     value,
@@ -515,7 +712,7 @@ export const buildEncryptedInput128 = async (
   signature: [`0x${string}`, `0x${string}`];
 }> => {
   const functionSelector = toFunctionSelector(
-    "batchProcessRequests(uint256,(bytes32,address,address,(bytes4,bytes,bytes8[],bytes32[]),bytes4,bytes4,bool,bytes32)[])"
+    "batchProcessRequests(uint256,(bytes32,address,address,(bytes4,bytes,bytes8[],bytes32[]),bytes4,bytes4,bool,bytes32,uint256,uint256)[])"
   );
 
   const [high, low] = split128To64Parts(value);
@@ -577,7 +774,7 @@ export const buildEncryptedInput256 = async (
   signature: [[`0x${string}`, `0x${string}`], [`0x${string}`, `0x${string}`]];
 }> => {
   const functionSelector = toFunctionSelector(
-    "batchProcessRequests(uint256,(bytes32,address,address,(bytes4,bytes,bytes8[],bytes32[]),bytes4,bytes4,bool,bytes32)[])"
+    "batchProcessRequests(uint256,(bytes32,address,address,(bytes4,bytes,bytes8[],bytes32[]),bytes4,bytes4,bool,bytes32,uint256,uint256)[])"
   );
 
   // Split the 256-bit value into 4 x 64-bit parts
@@ -701,11 +898,17 @@ export const setupContext = async (params: {
   const mpcExecutorAddress =
     envOrEmpty("COTI_MPC_EXECUTOR_ADDRESS") || cachedCoti.mpcExecutor || "";
 
-  const reuseSepolia = inboxSepoliaAddress && mpcAdderAddress;
-  const reuseCoti =
+  const reuseSepolia = !!(inboxSepoliaAddress && mpcAdderAddress);
+  let reuseCoti =
     envOrEmpty("COTI_REUSE_CONTRACTS").toLowerCase() === "true" &&
-    inboxCotiAddress &&
-    mpcExecutorAddress;
+    !!inboxCotiAddress &&
+    !!mpcExecutorAddress;
+  if (reuseCoti && !reuseSepolia) {
+    logStep(
+      "COTI_REUSE_CONTRACTS ignored: reusing COTI with a freshly deployed Hardhat inbox breaks mined-request nonce alignment. Set HARDHAT_INBOX_ADDRESS and HARDHAT_MPC_ADDER_ADDRESS (or SEPOLIA_*) to reuse both sides."
+    );
+    reuseCoti = false;
+  }
 
   let inboxSepolia: any;
   let mpcAdder: any;
@@ -718,6 +921,8 @@ export const setupContext = async (params: {
     inboxSepolia = await params.sepoliaViem.deployContract("Inbox", [BigInt(sepoliaChainId)]);
     mpcAdder = await params.sepoliaViem.deployContract("MpcAdder", [inboxSepolia.address]);
   }
+
+  await fundContractForInboxFees(hardhatCotiWallet, sepoliaPublicClient, mpcAdder.address as `0x${string}`);
 
   const mpcAdderAsCoti = await params.sepoliaViem.getContractAt("MpcAdder", mpcAdder.address, {
     client: {
@@ -885,10 +1090,16 @@ export const setupContextWideMpc = async (
     envOrEmpty("COTI_MPC_EXECUTOR_ADDRESS") || cachedCoti.mpcExecutor || "";
 
   const reuseSepolia = !!(inboxSepoliaAddress && mpcAdderAddress);
-  const reuseCoti =
+  let reuseCoti =
     envOrEmpty("COTI_REUSE_CONTRACTS").toLowerCase() === "true" &&
     !!inboxCotiAddress &&
     !!mpcExecutorAddress;
+  if (reuseCoti && !reuseSepolia) {
+    logStep(
+      "COTI_REUSE_CONTRACTS ignored: reusing COTI with a freshly deployed Hardhat inbox breaks mined-request nonce alignment. Set HARDHAT_INBOX_ADDRESS and HARDHAT_MPC_ADDER_* (or SEPOLIA_*) to reuse both sides."
+    );
+    reuseCoti = false;
+  }
 
   let inboxSepolia: any;
   let mpcAdder: any;
@@ -908,6 +1119,8 @@ export const setupContextWideMpc = async (
       inboxSepolia.address,
     ]);
   }
+
+  await fundContractForInboxFees(hardhatCotiWallet, sepoliaPublicClient, mpcAdder.address as `0x${string}`);
 
   const mpcAdderAsCoti = await params.sepoliaViem.getContractAt(
     config.podAdderContractName,
@@ -1136,7 +1349,13 @@ export const setupPodTestContext = async (params: {
   const envReuseCoti = envOrEmpty("COTI_REUSE_CONTRACTS").toLowerCase() === "true";
   const cotiHasCache = !!inboxCotiAddress && !!mpcExecutorAddress;
   const forceRedeployCotiExecutor = params.forceRedeployCotiExecutor === true;
-  const reuseCotiFull = envReuseCoti && cotiHasCache && !forceRedeployCotiExecutor;
+  let reuseCotiFull = envReuseCoti && cotiHasCache && !forceRedeployCotiExecutor;
+  if (reuseCotiFull && !reuseSepolia) {
+    logStep(
+      "COTI_REUSE_CONTRACTS ignored for pod test: reusing COTI with a freshly deployed Hardhat inbox breaks mined-request nonce alignment. Set HARDHAT_INBOX_ADDRESS and the matching HARDHAT_POD_TEST64_ADDRESS / _128_ / _256_ (or SEPOLIA_*) to reuse both sides."
+    );
+    reuseCotiFull = false;
+  }
 
   let inboxSepolia: any;
   let podTest: any;
@@ -1152,6 +1371,8 @@ export const setupPodTestContext = async (params: {
     inboxSepolia = await params.sepoliaViem.deployContract("Inbox", [BigInt(sepoliaChainId)]);
     podTest = await params.sepoliaViem.deployContract(params.podContractName, [inboxSepolia.address]);
   }
+
+  await fundContractForInboxFees(hardhatCotiWallet, sepoliaPublicClient, podTest.address as `0x${string}`);
 
   const podTestAsCoti = await params.sepoliaViem.getContractAt(params.podContractName, podTest.address, {
     client: {
@@ -1174,7 +1395,7 @@ export const setupPodTestContext = async (params: {
         client: { public: cotiPublicClient, wallet: cotiWallet },
       }
     );
-  } else if (envReuseCoti && forceRedeployCotiExecutor && inboxCotiAddress) {
+  } else if (envReuseCoti && forceRedeployCotiExecutor && inboxCotiAddress && reuseSepolia) {
     logStep(`Redeploying COTI MpcExecutor (keeping inbox ${inboxCotiAddress})`);
     inboxCoti = await params.cotiViem.getContractAt("Inbox", inboxCotiAddress as `0x${string}`, {
       client: { public: cotiPublicClient, wallet: cotiWallet },
@@ -1195,6 +1416,11 @@ export const setupPodTestContext = async (params: {
     });
     logStep(`Saved updated MpcExecutor to ${cotiDeploymentsPath}`);
   } else {
+    if (envReuseCoti && forceRedeployCotiExecutor && inboxCotiAddress && !reuseSepolia) {
+      logStep(
+        "Redeploying COTI MpcExecutor alone skipped: fresh Hardhat inbox without HARDHAT_INBOX_ADDRESS + pod contract env reuse would desync mined nonces on COTI. Deploying new COTI inbox + MpcExecutor."
+      );
+    }
     logStep("Deploying COTI Inbox + MpcExecutor");
     inboxCoti = await params.cotiViem.deployContract(
       "Inbox",
@@ -1298,23 +1524,31 @@ export const unwrapPodLastResultPayload = (getterHex: `0x${string}`): `0x${strin
   }
 };
 
-/** Default gas for PodTest256 `exec*` on Hardhat (overridable via `MineRequestOptions.hardhatGas` or `POD_OPS_HARDHAT_GAS`). */
-export const DEFAULT_POD_HARDHAT_GAS_256 = 30_000_000n;
+/**
+ * Default gas for PodTest256 `exec*` on Hardhat (overridable via `MineRequestOptions.hardhatGas` or `POD_OPS_HARDHAT_GAS`).
+ * Must stay ≤ {@link HARDHAT_EDR_TX_GAS_CAP}.
+ */
+export const DEFAULT_POD_HARDHAT_GAS_256 = HARDHAT_EDR_TX_GAS_CAP;
 
 /** Mine COTI + Sepolia round-trip for a pod exec tx; returns raw `lastResult` bytes (hex). */
 export const runPodRoundTrip = async (
   ctx: PodTestContext,
   label: string,
-  send: (podAsCoti: any, writeOpts?: { gas?: bigint }) => Promise<`0x${string}`>,
+  send: (podAsCoti: any, writeOpts?: { gas?: bigint; value?: bigint }) => Promise<`0x${string}`>,
   mineOptions?: MineRequestOptions
 ): Promise<`0x${string}`> => {
   const hardhatGasFromEnv = process.env.POD_OPS_HARDHAT_GAS?.trim();
   const envHardhatGas = hardhatGasFromEnv ? BigInt(hardhatGasFromEnv) : undefined;
-  const hardhatWriteGas =
+  const hardhatWriteGasRaw =
     mineOptions?.hardhatGas ??
     envHardhatGas ??
     (ctx.podContractName === "PodTest256" ? DEFAULT_POD_HARDHAT_GAS_256 : undefined);
-  const writeOpts = hardhatWriteGas !== undefined ? { gas: hardhatWriteGas } : undefined;
+  const hardhatWriteGas =
+    hardhatWriteGasRaw !== undefined && hardhatWriteGasRaw > HARDHAT_EDR_TX_GAS_CAP
+      ? HARDHAT_EDR_TX_GAS_CAP
+      : hardhatWriteGasRaw;
+  const gasOpts = hardhatWriteGas !== undefined ? { gas: hardhatWriteGas } : {};
+  const writeOpts = { ...podTwoWayWriteOptions(), ...gasOpts };
   const txHash = await send(ctx.contracts.podTestAsCoti, writeOpts);
   await ctx.sepolia.publicClient.waitForTransactionReceipt({ hash: txHash, ...receiptWaitOptions });
   const request = await getLatestRequest(ctx.contracts.inboxSepolia);

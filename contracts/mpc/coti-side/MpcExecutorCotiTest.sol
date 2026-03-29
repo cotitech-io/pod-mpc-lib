@@ -26,31 +26,23 @@ contract MpcExecutorCotiTest {
         inboxContract = _inbox;
     }
 
-    // --- `MpcExecutor` paths (inbox = proxy; `onlyInbox` passes) ---
+    // --- `MpcExecutor` paths (proxy forwards `mul*FromPlain` so `setPublic` + `mul` run in executor; see `MpcExecutor` natspec) ---
 
-    /// @notice Calls `MpcExecutor.mul256` with public-encoded operands; `cOwner` should be the test wallet (MPC user).
+    /// @notice `cOwner` should be the test wallet (MPC user ciphertext owner).
     function executorMul256PublicPlain(uint256 a, uint256 b, address cOwner) external {
-        gtUint256 memory ga = MpcCore.setPublic256(a);
-        gtUint256 memory gb = MpcCore.setPublic256(b);
-        executor.mul256(ga, gb, cOwner);
+        inboxContract.forwardMul256FromPlain(a, b, cOwner);
         ctUint256 memory uc = abi.decode(inboxContract.lastRespondData(), (ctUint256));
         lastPlain256 = MpcCore.decrypt(MpcCore.onBoard(uc));
     }
 
-    /// @notice Calls `MpcExecutor.mul128` with public-encoded operands.
     function executorMul128PublicPlain(uint128 a, uint128 b, address cOwner) external {
-        gtUint128 memory ga = MpcCore.setPublic128(a);
-        gtUint128 memory gb = MpcCore.setPublic128(b);
-        executor.mul128(ga, gb, cOwner);
+        inboxContract.forwardMul128FromPlain(a, b, cOwner);
         ctUint128 memory uc = abi.decode(inboxContract.lastRespondData(), (ctUint128));
         lastPlain128 = MpcCore.decrypt(MpcCore.onBoard(uc));
     }
 
-    /// @notice Calls `MpcExecutor.mul64` with public-encoded operands (`MpcCore.checkedMul` inside executor).
     function executorMul64PublicPlain(uint64 a, uint64 b, address cOwner) external {
-        gtUint64 ga = MpcCore.setPublic64(a);
-        gtUint64 gb = MpcCore.setPublic64(b);
-        executor.mul64(ga, gb, cOwner);
+        inboxContract.forwardMul64FromPlain(a, b, cOwner);
         ctUint64 uc = abi.decode(inboxContract.lastRespondData(), (ctUint64));
         lastPlain64 = MpcCore.decrypt(MpcCore.onBoard(uc));
     }

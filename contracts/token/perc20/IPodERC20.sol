@@ -112,13 +112,14 @@ interface IPodERC20 {
      * @dev **Gotcha:** reverts if either the sender or `to` already has a pending transfer. **Gotcha:** concurrent approvals use a
      *      separate pending map and do not block transfers unless your deployment couples them elsewhere.
      */
-    function transfer(address to, itUint256 calldata value) external returns (bytes32 requestId);
+    /// @param callbackFeeLocalWei Caller-estimated wei slice for the callback leg; total payment is `msg.value`.
+    function transfer(address to, itUint256 calldata value, uint256 callbackFeeLocalWei) external payable returns (bytes32 requestId);
 
     /**
      * @notice Starts a transfer from `from` to `to` using allowance granted to `msg.sender`.
      * @dev **Gotcha:** allowance checks and consumption happen on COTI; this entry point only forwards the MPC call.
      */
-    function transferFrom(address from, address to, itUint256 calldata value) external returns (bytes32 requestId);
+    function transferFrom(address from, address to, itUint256 calldata value, uint256 callbackFeeLocalWei) external payable returns (bytes32 requestId);
 
     /**
      * @notice Like {transfer}, then after success attempts `to.call(data)` with no gas stipend beyond the remaining tx gas.
@@ -127,8 +128,9 @@ interface IPodERC20 {
     function transferAndCall(
         address to,
         itUint256 calldata amount,
-        bytes calldata data
-    ) external returns (bytes32 requestId);
+        bytes calldata data,
+        uint256 callbackFeeLocalWei
+    ) external payable returns (bytes32 requestId);
 
     /// @dev Reserved: re-encrypt the caller's balance for another account's key (not implemented in the reference token).
     // function setAccountEncryptionAddress(address addr) external returns (bytes32 requestId);
@@ -159,7 +161,7 @@ interface IPodERC20 {
      * @dev **Gotcha:** classic ERC-20 allowance front-running applies if you change from non-zero to non-zero in one step;
      *      consider setting to zero first. **Gotcha:** only one pending approval per `(owner, spender)` at a time.
      */
-    function approve(address spender, itUint256 calldata value) external returns (bytes32 requestId);
+    function approve(address spender, itUint256 calldata value, uint256 callbackFeeLocalWei) external payable returns (bytes32 requestId);
 
     /// @dev Reserved: plain-uint256 approval variant (implementation may gate on {publicAmountsEnabled}).
     // function approve(address spender, uint256 amount) external returns (bytes32 requestId);
@@ -183,7 +185,7 @@ interface IPodERC20 {
      * @return requestId Asynchronous burn request.
      * @dev **Gotcha:** uses the same pending-transfer slot as transfers; burns block other transfers for `msg.sender` until settled.
      */
-    function burn(itUint256 calldata amount) external returns (bytes32 requestId);
+    function burn(itUint256 calldata amount, uint256 callbackFeeLocalWei) external payable returns (bytes32 requestId);
 
     /// @dev Reserved: burn garbled amount; not supported in reference flows.
     // function burnGt(gtUint256 amount) external returns (gtBool);
@@ -201,5 +203,5 @@ interface IPodERC20 {
      * @return requestId Two-way inbox request id.
      * @dev **Gotcha:** large account lists mean heavy MPC work and gas on COTI; empty list may fail on the COTI side.
      */
-    function syncBalances(address[] calldata accounts) external returns (bytes32 requestId);
+    function syncBalances(address[] calldata accounts, uint256 callbackFeeLocalWei) external payable returns (bytes32 requestId);
 }

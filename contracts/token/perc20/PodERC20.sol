@@ -78,6 +78,8 @@ contract PodERC20 is IPodERC20, InboxUser {
         cotiChainId = _cotiChainId;
     }
 
+    receive() external payable {}
+
     // --- External: mutating (user / admin) ---
 
     /**
@@ -93,13 +95,13 @@ contract PodERC20 is IPodERC20, InboxUser {
      * @dev **Gotcha:** reverts if either party already has a pending transfer. **Gotcha:** `TransferRequestSubmitted` indexes
      *      `msg.sender` as `from`, not the `from` argument of internal `_transfer` (same for direct `transfer`).
      */
-    function transfer(address to, itUint256 calldata value) external returns (bytes32 requestId) {
-        return _transfer(IPodErc20CotiSide.transfer.selector, msg.sender, to, value);
+    function transfer(address to, itUint256 calldata value, uint256 callbackFeeLocalWei) external payable returns (bytes32 requestId) {
+        return _transfer(IPodErc20CotiSide.transfer.selector, msg.sender, to, value, msg.value, callbackFeeLocalWei);
     }
 
     /// @inheritdoc IPodERC20
-    function transferFrom(address from, address to, itUint256 calldata value) external returns (bytes32 requestId) {
-        return _transfer(IPodErc20CotiSide.transferFrom.selector, from, to, value);
+    function transferFrom(address from, address to, itUint256 calldata value, uint256 callbackFeeLocalWei) external payable returns (bytes32 requestId) {
+        return _transfer(IPodErc20CotiSide.transferFrom.selector, from, to, value, msg.value, callbackFeeLocalWei);
     }
 
     /**
@@ -109,35 +111,36 @@ contract PodERC20 is IPodERC20, InboxUser {
     function transferAndCall(
         address to,
         itUint256 calldata amount,
-        bytes calldata data
-    ) external returns (bytes32 requestId) {
-        requestId = _transfer(IPodErc20CotiSide.transfer.selector, msg.sender, to, amount);
+        bytes calldata data,
+        uint256 callbackFeeLocalWei
+    ) external payable returns (bytes32 requestId) {
+        requestId = _transfer(IPodErc20CotiSide.transfer.selector, msg.sender, to, amount, msg.value, callbackFeeLocalWei);
         _requestCallbacks[requestId] = data;
         return requestId;
     }
 
     /// @inheritdoc IPodERC20
-    function approve(address spender, itUint256 calldata value) external returns (bytes32 requestId) {
-        return _approve(msg.sender, spender, value);
+    function approve(address spender, itUint256 calldata value, uint256 callbackFeeLocalWei) external payable returns (bytes32 requestId) {
+        return _approve(msg.sender, spender, value, msg.value, callbackFeeLocalWei);
     }
 
     /// @inheritdoc IPodERC20
-    function burn(itUint256 calldata value) external returns (bytes32 requestId) {
-        return _burn(msg.sender, value);
+    function burn(itUint256 calldata value, uint256 callbackFeeLocalWei) external payable returns (bytes32 requestId) {
+        return _burn(msg.sender, value, msg.value, callbackFeeLocalWei);
     }
 
     /**
      * @inheritdoc IPodERC20
      * @dev Does not record a “pending” flag per account for sync; only transfers/burns use the pending-transfer map.
      */
-    function syncBalances(address[] calldata accounts) external returns (bytes32 requestId) {
+    function syncBalances(address[] calldata accounts, uint256 callbackFeeLocalWei) external payable returns (bytes32 requestId) {
         IInbox.MpcMethodCall memory mpcMethodCall = MpcAbiCodec.create(IPodErc20CotiSide.syncBalances.selector, 1)
             .addArgument(accounts)
             .build();
 
-        requestId = IInbox(inbox).sendTwoWayMessage(
-            cotiChainId,
-            cotiSideContract,
+        requestId = _sendPodTwoWay(
+            msg.value,
+            callbackFeeLocalWei,
             mpcMethodCall,
             PodERC20.syncBalancesCallback.selector,
             PodERC20.syncBalancesError.selector
@@ -308,7 +311,28 @@ contract PodERC20 is IPodERC20, InboxUser {
 
     // --- Internal ---
 
-    function _approve(address owner, address spender, itUint256 calldata value) internal returns (bytes32 requestId) {
+    /// @param totalValueWei Total native payment (e.g. `msg.value`); `callbackFeeLocalWei` is the caller-supplied callback slice.
+    function _sendPodTwoWay(
+        uint256 totalValueWei,
+        uint256 callbackFeeLocalWei,
+        IInbox.MpcMethodCall memory mpcMethodCall,
+        bytes4 callbackSelector_,
+        bytes4 errorSelector_
+    ) internal returns (bytes32) {
+        require(callbackFeeLocalWei >= 1, "PodERC20: callback fee min");
+        require(callbackFeeLocalWei <= totalValueWei, "PodERC20: callback exceeds total");
+        require(address(this).balance >= totalValueWei, "PodERC20: inbox fee");
+        return IInbox(inbox).sendTwoWayMessage{value: totalValueWei}(
+            cotiChainId,
+            cotiSideContract,
+            mpcMethodCall,
+            callbackSelector_,
+            errorSelector_,
+            callbackFeeLocalWei
+        );
+    }
+
+    function _approve(address owner, address spender, itUint256 calldata value, uint256 totalValueWei, uint256 callbackFeeLocalWei) internal returns (bytes32 requestId) {
         if (_pendingApprovalRequestIds[owner][spender] != bytes32(0)) {
             revert ApprovalAlreadyPending(owner, spender, _pendingApprovalRequestIds[owner][spender]);
         }
@@ -318,9 +342,9 @@ contract PodERC20 is IPodERC20, InboxUser {
             .addArgument(value)
             .build();
 
-        requestId = IInbox(inbox).sendTwoWayMessage(
-            cotiChainId,
-            cotiSideContract,
+        requestId = _sendPodTwoWay(
+            totalValueWei,
+            callbackFeeLocalWei,
             mpcMethodCall,
             PodERC20.approveCallback.selector,
             PodERC20.approveError.selector
@@ -329,7 +353,7 @@ contract PodERC20 is IPodERC20, InboxUser {
         emit ApprovalRequestSubmitted(owner, spender, requestId);
     }
 
-    function _burn(address from, itUint256 calldata value) internal returns (bytes32 requestId) {
+    function _burn(address from, itUint256 calldata value, uint256 totalValueWei, uint256 callbackFeeLocalWei) internal returns (bytes32 requestId) {
         if (_pendingTransferRequestIds[from] != bytes32(0)) {
             revert TransferAlreadyPending(from, address(0), _pendingTransferRequestIds[from]);
         }
@@ -339,9 +363,9 @@ contract PodERC20 is IPodERC20, InboxUser {
             .addArgument(value)
             .build();
 
-        requestId = IInbox(inbox).sendTwoWayMessage(
-            cotiChainId,
-            cotiSideContract,
+        requestId = _sendPodTwoWay(
+            totalValueWei,
+            callbackFeeLocalWei,
             mpcMethodCall,
             PodERC20.transferCallback.selector,
             PodERC20.transferError.selector
@@ -359,7 +383,9 @@ contract PodERC20 is IPodERC20, InboxUser {
         bytes4 remoteTransferSelector,
         address from,
         address to,
-        itUint256 calldata value
+        itUint256 calldata value,
+        uint256 totalValueWei,
+        uint256 callbackFeeLocalWei
     ) internal returns (bytes32 requestId) {
         if (_pendingTransferRequestIds[from] != bytes32(0) || _pendingTransferRequestIds[to] != bytes32(0)) {
             revert TransferAlreadyPending(from, to, _pendingTransferRequestIds[from]);
@@ -371,9 +397,9 @@ contract PodERC20 is IPodERC20, InboxUser {
             .addArgument(value)
             .build();
 
-        requestId = IInbox(inbox).sendTwoWayMessage(
-            cotiChainId,
-            cotiSideContract,
+        requestId = _sendPodTwoWay(
+            totalValueWei,
+            callbackFeeLocalWei,
             mpcMethodCall,
             PodERC20.transferCallback.selector,
             PodERC20.transferError.selector

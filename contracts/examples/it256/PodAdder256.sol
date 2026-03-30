@@ -2,10 +2,12 @@
 pragma solidity ^0.8.19;
 
 import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
+
 import "../../mpc/PodLib.sol";
 import "../../mpc/PodLibBase.sol";
 
-
+/// @title PodAdder256
+/// @notice Example 256-bit MPC adder using {PodLib}.
 contract PodAdder256 is PodLib {
     event AddRequest(bytes32 requestId);
 

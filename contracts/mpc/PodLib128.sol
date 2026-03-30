@@ -5,13 +5,11 @@ import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 
 import "../IInbox.sol";
 import "../mpccodec/MpcAbiCodec.sol";
-import "./PodLibBase.sol";
 import "./coti-side/IPodExecutorOps.sol";
+import "./PodLibBase.sol";
 
-/**
- * @title PodLib128
- * @notice 128-bit POD MPC (itUint128 / ctUint128).
- */
+/// @title PodLib128
+/// @notice 128-bit POD MPC helpers (`itUint128` / `ctUint128`).
 abstract contract PodLib128 is PodLibBase {
     using MpcAbiCodec for MpcAbiCodec.MpcMethodCallContext;
 

@@ -3,24 +3,25 @@ pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 
+/// @title MinerBase
+/// @notice Ownable registry of addresses allowed to call miner-only inbox functions.
 contract MinerBase is Ownable {
     mapping(address => bool) private _miners;
 
     event MinerAdded(address miner);
     event MinerRemoved(address miner);
 
-    /// @dev Restrict calls to registered miners.
+    /// @dev Reverts unless `msg.sender` is a registered miner.
     modifier onlyMiner() {
         require(_miners[msg.sender], "MinerBase: caller is not a miner");
         _;
     }
 
-    /// @notice Create the miner registry with an initial owner.
-    /// @param initialOwner The address to set as owner.
+    /// @param initialOwner Initial {Ownable} owner.
     constructor(address initialOwner) Ownable(initialOwner) {}
 
-    /// @notice Adds a miner address
-    /// @param miner The miner address to add
+    /// @notice Register a miner address.
+    /// @param miner Address allowed to mine.
     function addMiner(address miner) external onlyOwner {
         require(miner != address(0), "MinerBase: miner is zero address");
         require(!_miners[miner], "MinerBase: already a miner");
@@ -28,19 +29,18 @@ contract MinerBase is Ownable {
         emit MinerAdded(miner);
     }
 
-    /// @notice Removes a miner address
-    /// @param miner The miner address to remove
+    /// @notice Remove a miner address.
+    /// @param miner Address to revoke.
     function removeMiner(address miner) external onlyOwner {
         require(_miners[miner], "MinerBase: not a miner");
         delete _miners[miner];
         emit MinerRemoved(miner);
     }
 
-    /// @notice Checks if an address is a miner
-    /// @param miner The address to check
-    /// @return True if the address is a miner
+    /// @notice Whether `miner` is registered.
+    /// @param miner Address to query.
+    /// @return True if registered.
     function isMiner(address miner) external view returns (bool) {
         return _miners[miner];
     }
 }
-

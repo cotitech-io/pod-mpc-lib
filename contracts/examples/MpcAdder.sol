@@ -6,6 +6,8 @@ import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 import "../mpc/PodLib.sol";
 import "../mpc/PodLibBase.sol";
 
+/// @title MpcAdder
+/// @notice Example dApp: 64-bit encrypted add over the inbox using {PodLib}.
 contract MpcAdder is PodLib {
     event AddRequest(bytes32 requestId);
 

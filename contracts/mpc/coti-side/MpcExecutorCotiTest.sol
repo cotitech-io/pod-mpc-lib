@@ -3,16 +3,12 @@ pragma solidity ^0.8.19;
 
 import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 
-import "./MpcExecutor.sol";
 import "./MpcExecutorCotiProxyInbox.sol";
+import "./MpcExecutor.sol";
 
-/**
- * @title MpcExecutorCotiTest
- * @notice COTI harness: **direct** `MpcCore` helpers plus **`MpcExecutor`** entrypoints wired to a
- *         `MpcExecutorCotiProxyInbox` (minimal `respond`). Deploy inbox → `MpcExecutor(inbox)` → this contract,
- *         then `registerExecutor` on the inbox (see system test).
- * @dev Avoids nested `new MpcExecutor` in one tx (very large constructor gas on testnet).
- */
+/// @title MpcExecutorCotiTest
+/// @notice Test harness: `MpcCore` shortcuts plus {MpcExecutor} paths via {MpcExecutorCotiProxyInbox}.
+/// @dev Deploy proxy inbox, then executor, then `registerExecutor`. Avoids `new MpcExecutor` in a heavy single tx.
 contract MpcExecutorCotiTest {
     MpcExecutor public immutable executor;
     MpcExecutorCotiProxyInbox public immutable inboxContract;

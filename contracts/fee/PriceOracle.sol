@@ -1,25 +1,37 @@
 // SPDX-License-Identifier: MIT
+pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-pragma solidity ^0.8.19;
-
+/// @title PriceOracle
+/// @notice Base oracle: cached X128 USD-stable prices per wei, optional pull interval, and admin overrides.
+/// @dev Subclasses override {fetchLocalTokenPriceUSDX128} / {fetchRemoteTokenPriceUSDX128} to refresh from feeds.
 contract PriceOracle is Ownable {
-    error FetchIntervalNotMet();
-    error NotPriceAdmin();
-    /// @notice Fixed-point scale `2^128` for USD-quoted prices stored in {localTokenPriceUSDX128} and {remoteTokenPriceUSDX128}.
-    /// @dev Values are “quote token (in USD-stable units) per 1 wei of base”, multiplied by this scale so they fit in uint256 math.
+    /// @notice Fixed-point scale `2^128` for prices in {localTokenPriceUSDX128} and {remoteTokenPriceUSDX128}.
+    /// @dev Quote per 1 wei of base token, in USD-stable units, scaled by this factor.
     uint256 public constant PRICE_SCALE = 1 << 128;
-    /// @notice Minimum seconds between on-chain price pulls via {fetchPrices}. Set to 0 to disable the time gate.
+
+    /// @notice Minimum seconds between successful pulls in {fetchPrices}. Zero disables the time gate.
     uint256 public fetchInterval;
-    /// @notice Minimum block distance between pulls when non-zero; 0 disables the block gate.
-    /// @dev Combined with {fetchInterval}: both gates must pass (when enabled) before Uniswap is queried.
+
+    /// @notice Block-interval gate for pulls (reserved; use with {fetchInterval} in derived contracts). Zero disables.
     uint256 public fetchBlockInterval;
+
+    /// @notice Timestamp of the last successful pull or admin set.
     uint256 public lastFetchTimestamp;
-    uint256 public localTokenPriceUSDX128; // eth
-    uint256 public remoteTokenPriceUSDX128; // coti
+
+    /// @notice Cached local execution token price (X128).
+    uint256 public localTokenPriceUSDX128;
+
+    /// @notice Cached remote execution token price (X128).
+    uint256 public remoteTokenPriceUSDX128;
+
+    /// @notice Address allowed to set prices directly (in addition to {fetchPrices}).
     address public priceAdmin;
 
+    error NotPriceAdmin();
+
+    /// @dev Reverts unless `msg.sender` is {priceAdmin}.
     modifier onlyPriceAdmin() {
         if (msg.sender != priceAdmin) {
             revert NotPriceAdmin();
@@ -27,16 +39,11 @@ contract PriceOracle is Ownable {
         _;
     }
 
+    /// @param initialOwner {Ownable} owner.
     constructor(address initialOwner) Ownable(initialOwner) {}
 
-    /// @notice Updates cached prices by calling {fetchLocalTokenPriceUSDX128} / {fetchRemoteTokenPriceUSDX128}.
-    /// @dev **Gas / `estimateGas` safety**
-    ///      - Interval checks use only storage reads and **run before** any virtual fetch (no Uniswap on revert path).
-    ///      - **Fee validation** in {InboxFeeManager} only calls {getLocalTokenPriceUSDX128} / {getRemoteTokenPriceUSDX128},
-    ///        which read **cached** values and never pull oracles — so send-message gas does not depend on refresh timing.
-    ///      - For this function only: use {previewFetchPrices} at the same `block.tag` as `estimateGas` to see whether
-    ///        the expensive branch will run; if `canFetch` differs between simulation and mining, your `fetchPrices` tx
-    ///        can still revert or use different gas — prefer a generous gas limit or a separate `fetchPrices` tx.
+    /// @notice Refresh cached prices when the time gate allows.
+    /// @dev Interval checks are cheap storage reads only. Inbox fee paths use {getLocalTokenPriceUSDX128}/{getRemoteTokenPriceUSDX128} only (no pull). Use {previewFetchPrices} with `estimateGas` when budgeting `fetchPrices`.
     function fetchPrices() external {
         if (!_fetchIntervalsElapsed()) {
             return;
@@ -47,6 +54,57 @@ contract PriceOracle is Ownable {
         remoteTokenPriceUSDX128 = fetchRemoteTokenPriceUSDX128();
     }
 
+    /// @notice Minimum seconds between pulls.
+    /// @param secondsBetweenFetches New interval (0 = off).
+    function setFetchInterval(uint256 secondsBetweenFetches) external onlyOwner {
+        fetchInterval = secondsBetweenFetches;
+    }
+
+    /// @notice Minimum blocks between pulls (for future use with the time gate).
+    /// @param blocksBetweenFetches New interval (0 = off).
+    function setFetchBlockInterval(uint256 blocksBetweenFetches) external onlyOwner {
+        fetchBlockInterval = blocksBetweenFetches;
+    }
+
+    /// @notice Set the address allowed to call {setLocalTokenPriceUSDX128} / {setRemoteTokenPriceUSDX128}.
+    /// @param admin Price admin address.
+    function setPriceAdmin(address admin) external onlyOwner {
+        priceAdmin = admin;
+    }
+
+    /// @notice Manually set the local token price (also updates {lastFetchTimestamp}).
+    /// @param price X128-scaled price.
+    function setLocalTokenPriceUSDX128(uint256 price) external onlyPriceAdmin {
+        localTokenPriceUSDX128 = price;
+        lastFetchTimestamp = block.timestamp;
+    }
+
+    /// @notice Manually set the remote token price (also updates {lastFetchTimestamp}).
+    /// @param price X128-scaled price.
+    function setRemoteTokenPriceUSDX128(uint256 price) external onlyPriceAdmin {
+        remoteTokenPriceUSDX128 = price;
+        lastFetchTimestamp = block.timestamp;
+    }
+
+    /// @notice Cached local token price (read-only for fee logic).
+    /// @return price X128-scaled price.
+    function getLocalTokenPriceUSDX128() external view returns (uint256 price) {
+        return localTokenPriceUSDX128;
+    }
+
+    /// @notice Cached remote token price (read-only for fee logic).
+    /// @return price X128-scaled price.
+    function getRemoteTokenPriceUSDX128() external view returns (uint256 price) {
+        return remoteTokenPriceUSDX128;
+    }
+
+    /// @notice Whether {fetchPrices} would update storage at this block.
+    /// @return canFetch True if the time gate passes.
+    function previewFetchPrices() external view returns (bool canFetch) {
+        return _fetchIntervalsElapsed();
+    }
+
+    /// @dev True if enough time has passed since {lastFetchTimestamp} for a pull.
     function _fetchIntervalsElapsed() internal view returns (bool) {
         if (fetchInterval != 0 && lastFetchTimestamp != 0 && block.timestamp - lastFetchTimestamp < fetchInterval) {
             return false;
@@ -54,41 +112,13 @@ contract PriceOracle is Ownable {
         return true;
     }
 
-    function setFetchInterval(uint256 secondsBetweenFetches) external onlyOwner {
-        fetchInterval = secondsBetweenFetches;
-    }
-
-    function setFetchBlockInterval(uint256 blocksBetweenFetches) external onlyOwner {
-        fetchBlockInterval = blocksBetweenFetches;
-    }
-
-    function setPriceAdmin(address admin) external onlyOwner {
-        priceAdmin = admin;
-    }
-
-    function setLocalTokenPriceUSDX128(uint256 price) external onlyPriceAdmin {
-        localTokenPriceUSDX128 = price;
-        lastFetchTimestamp = block.timestamp;
-    }
-
-    function setRemoteTokenPriceUSDX128(uint256 price) external onlyPriceAdmin {
-        remoteTokenPriceUSDX128 = price;
-        lastFetchTimestamp = block.timestamp;
-    }
-
-    function getLocalTokenPriceUSDX128() external view returns (uint256) {
-        return localTokenPriceUSDX128;
-    }
-    
-    function getRemoteTokenPriceUSDX128() external view returns (uint256) {
-        return remoteTokenPriceUSDX128;
-    }
-
-    function fetchLocalTokenPriceUSDX128() internal virtual view returns (uint256) {
+    /// @dev Override to pull local token price; default returns the cache.
+    function fetchLocalTokenPriceUSDX128() internal view virtual returns (uint256) {
         return localTokenPriceUSDX128;
     }
 
-    function fetchRemoteTokenPriceUSDX128() internal virtual view returns (uint256) {
+    /// @dev Override to pull remote token price; default returns the cache.
+    function fetchRemoteTokenPriceUSDX128() internal view virtual returns (uint256) {
         return remoteTokenPriceUSDX128;
     }
 }

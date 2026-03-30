@@ -6,10 +6,8 @@ import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 import "../../InboxUser.sol";
 import "./IPodExecutorOps.sol";
 
-/**
- * @title MpcExecutor
- * @notice Executor for POD MPC on COTI: 64/128/256-bit ops (checked arithmetic where applicable).
- */
+/// @title MpcExecutor
+/// @notice COTI-side MPC executor: routes `onlyInbox` calls to `MpcCore` for 64/128/256-bit operations.
 contract MpcExecutor is InboxUser, IPodExecutor64, IPodExecutor128, IPodExecutor256 {
     event GtResult(ctBool result, address cOwner);
     event AddResult(ctUint64 result, address cOwner);

@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.19;
 
-import { PodLib } from "../../mpc/PodLib.sol";
-import { PodLibBase } from "../../mpc/PodLibBase.sol";
-import "../../mpccodec/MpcAbiCodec.sol";
-import "../../IInbox.sol";
 import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 
+import "../../IInbox.sol";
+import "../../mpccodec/MpcAbiCodec.sol";
+import { PodLib } from "../../mpc/PodLib.sol";
+import { PodLibBase } from "../../mpc/PodLibBase.sol";
+
+/// @title Millionaire
+/// @notice Example MPC “millionaire” comparison using {PodLib} and the inbox.
 contract Millionaire is PodLib {
     event RevealResult(bytes32 indexed requestId, ctBool result);
 

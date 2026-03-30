@@ -1,34 +1,14 @@
 // SPDX-License-Identifier: MIT
-
 pragma solidity ^0.8.19;
 
 import "./PriceOracle.sol";
 
-/**
- * @title InboxFeeManager
- * @notice Validates minimum fee budgets for cross-chain inbox messages. Mixed into {InboxBase}.
- * @dev **Gas units vs native token**
- *      Callers pay the **native execution token** (e.g. ETH) via `msg.value` at the **current** `tx.gasprice`.
- *      The fee manager converts that payment to **gas units** by dividing wei by `gasPrice` (using
- *      {DEFAULT_GAS_PRICE} when `tx.gasprice` is zero). All values **stored on `Request.targetFee` and
- *      `Request.callerFee`** are **gas unit budgets** for the corresponding execution leg on the **target**
- *      or **callback** chain. Execution code (e.g. {InboxMiner}) must **not** multiply or divide those
- *      fields by `gasPrice`—they are already gas limits / budgets.
- *      When the price oracle has no prices (0), remote leg conversion uses 1:1 gas-unit equivalence for development.
- */
+/// @title InboxFeeManager
+/// @notice Validates cross-chain message fee budgets. Mixed into {InboxBase}.
+/// @dev `msg.value` is converted to **gas units** using `tx.gasprice` (or {DEFAULT_GAS_PRICE} if zero). {Request.targetFee} and {Request.callerFee} store gas budgets, not wei. Oracle price ratio maps remote gas budgets when configured; otherwise 1:1.
 abstract contract InboxFeeManager {
-    error PriceOracleNotInitialized();
-    error TotalFeeTooLow(uint256 totalFee);
-    error CallbackFeeTooLow(uint256 callbackFee);
-    error TargetFeeTooLow(uint256 targetFee);
-    error FeeConfigInvalid(FeeConfig feeConfig);
-
-    /**
-     * @notice Minimum fee templates, expressed in **gas units** (not wei).
-     * @dev If `constantFee` is set, it is the minimum **gas units** required.
-     *      Otherwise: `[(data_size * gasPerByte) + callbackExecutionGas + (errorLength * gasPerByte)] * bufferRatio / 10000`
-     *      (pure gas-unit arithmetic; no `gasPrice` here).
-     */
+    /// @notice Template for minimum fees in **gas units** (not wei).
+    /// @dev If `constantFee` is non-zero it is the minimum gas units. Else: `(data * gasPerByte + callbackExecutionGas + errorLength * gasPerByte) * bufferRatioX10000 / 10000`.
     struct FeeConfig {
         uint256 constantFee;
         uint256 gasPerByte;
@@ -37,19 +17,36 @@ abstract contract InboxFeeManager {
         uint256 bufferRatioX10000;
     }
 
+    /// @notice Oracle used to convert gas budgets between local and remote fee tokens.
     PriceOracle public priceOracle;
+
+    /// @notice Minimum template for the local (callback) leg.
     FeeConfig public localMinFeeConfig;
+
+    /// @notice Minimum template for the remote execution leg.
     FeeConfig public remoteMinFeeConfig;
 
+    /// @notice Fallback gas price (wei) when `tx.gasprice == 0`.
     uint256 public constant DEFAULT_GAS_PRICE = 2_000_000_000 wei;
 
-    /// @dev Reserve gas units so a failed target call can still record {errors} / emit {ErrorReceived}.
+    /// @dev Reserved execution gas units for error paths (documentation constant; enforcement is application-level).
     uint256 internal constant MIN_GAS_RESERVE_EXECUTION = 100_000;
 
+    error PriceOracleNotInitialized();
+    error TotalFeeTooLow(uint256 totalFee);
+    error CallbackFeeTooLow(uint256 callbackFee);
+    error TargetFeeTooLow(uint256 targetFee);
+    error FeeConfigInvalid(FeeConfig feeConfig);
+
+    /// @notice Point the fee manager at a price oracle.
+    /// @param priceOracleAddress Oracle contract address.
     function _setPriceOracle(address priceOracleAddress) internal {
         priceOracle = PriceOracle(priceOracleAddress);
     }
 
+    /// @notice Replace minimum fee templates (both must be valid if non-constant).
+    /// @param _localMinFeeConfig Local leg template.
+    /// @param _remoteMinFeeConfig Remote leg template.
     function _updateMinFeeConfigs(FeeConfig memory _localMinFeeConfig, FeeConfig memory _remoteMinFeeConfig) internal {
         if (
             _localMinFeeConfig.constantFee == 0
@@ -74,9 +71,12 @@ abstract contract InboxFeeManager {
         remoteMinFeeConfig = _remoteMinFeeConfig;
     }
 
-    /// @notice Two-way: `totalFeeLocalWei` is `msg.value`; `callbackFeeLocalWei` is the wei slice for the return-leg (local chain) at this tx's gas price.
-    /// @return targetGasRemote Gas unit budget stored on the outgoing request for **remote** execution (`Request.targetFee`).
-    /// @return callerGasLocal Gas unit budget stored for the **callback** leg on the source chain (`Request.callerFee`).
+    /// @notice Validate two-way payment and compute gas budgets for target and callback legs.
+    /// @param dataSize Encoded method call size for template checks.
+    /// @param totalFeeLocalWei Total `msg.value` (wei).
+    /// @param callbackFeeLocalWei Wei reserved for the callback leg.
+    /// @return targetGasRemote Gas units stored as {Request.targetFee} on the remote leg.
+    /// @return callerGasLocal Gas units stored as {Request.callerFee} for the callback.
     function validateAndPrepareTwoWayFees(uint256 dataSize, uint256 totalFeeLocalWei, uint256 callbackFeeLocalWei)
         internal
         view
@@ -93,7 +93,6 @@ abstract contract InboxFeeManager {
         }
 
         uint256 gasPrice = tx.gasprice != 0 ? tx.gasprice : DEFAULT_GAS_PRICE;
-        // Convert payment from wei to gas units at this transaction's gas price.
         uint256 callbackGasLocal = callbackFeeLocalWei / gasPrice;
         uint256 totalGasLocal = totalFeeLocalWei / gasPrice;
         uint256 remoteGasLocal = totalGasLocal - callbackGasLocal;
@@ -105,8 +104,10 @@ abstract contract InboxFeeManager {
         callerGasLocal = callbackGasLocal;
     }
 
-    /// @notice One-way: converts `msg.value` to gas units then validates the remote leg minimum.
-    /// @return targetGasRemote Gas unit budget for **remote** execution (`Request.targetFee`). `Request.callerFee` is zero.
+    /// @notice Validate one-way payment and compute remote gas budget.
+    /// @param dataSize Encoded method call size for template checks.
+    /// @param totalFeeLocalWei Total `msg.value` (wei).
+    /// @return targetGasRemote Gas units for {Request.targetFee}; {Request.callerFee} is zero.
     function validateAndPrepareOneWayFees(uint256 dataSize, uint256 totalFeeLocalWei)
         internal
         view
@@ -120,7 +121,10 @@ abstract contract InboxFeeManager {
         targetGasRemote = validateRemoteFee(dataSize, totalGasRemote);
     }
 
-    /// @dev Maps the **remote-execution gas budget** (gas units on the local fee token basis) to gas units on the remote chain using the oracle; 1:1 if oracle unset or prices zero.
+    /// @notice Map remote gas budget using oracle prices (1:1 if oracle missing or prices zero).
+    /// @param dataSize Data size for minimum check.
+    /// @param remoteGasLocal Gas units before cross-chain adjustment.
+    /// @return remoteGasBudget Gas units after adjustment and minimum check.
     function validateRemoteFee(uint256 dataSize, uint256 remoteGasLocal) internal view returns (uint256 remoteGasBudget) {
         if (address(priceOracle) == address(0)) {
             remoteGasBudget = remoteGasLocal;
@@ -138,12 +142,34 @@ abstract contract InboxFeeManager {
         }
     }
 
-    function calculateTwoWayFeeRequired(uint256 remoteMethodCallSize, uint256 callBackMethodCallSize,
-    uint256 remoteMethodExecutionGas, uint256 callBackMethodExecutionGas, uint256 gasPrice
+    /// @notice Minimum gas units from template (no wei conversion).
+    /// @param dataSize Payload size for `gasPerByte` terms.
+    /// @param feeConfig Template to apply.
+    /// @return Gas units required before buffer.
+    function expectedMinFee(uint256 dataSize, FeeConfig memory feeConfig) internal pure returns (uint256) {
+        if (feeConfig.constantFee > 0) {
+            return feeConfig.constantFee;
+        }
+        uint256 gasUnits = (dataSize * feeConfig.gasPerByte) + feeConfig.callbackExecutionGas
+            + (feeConfig.errorLength * feeConfig.gasPerByte);
+        return gasUnits * feeConfig.bufferRatioX10000 / 10000;
+    }
+
+    /// @notice Off-chain / UI helper: rough native cost at `gasPrice` (return names are historical; not used for on-chain validation).
+    /// @param remoteMethodCallSize Remote calldata size term.
+    /// @param callBackMethodCallSize Callback calldata size term.
+    /// @param remoteMethodExecutionGas Remote execution gas term.
+    /// @param callBackMethodExecutionGas Callback execution gas term.
+    /// @param gasPrice Wei per gas assumption.
+    /// @return targetGasRemote Scaled remote-side estimate.
+    /// @return callerGasLocal Scaled callback-side estimate.
+    function calculateTwoWayFeeRequired(
+        uint256 remoteMethodCallSize,
+        uint256 callBackMethodCallSize,
+        uint256 remoteMethodExecutionGas,
+        uint256 callBackMethodExecutionGas,
+        uint256 gasPrice
     ) external view returns (uint256 targetGasRemote, uint256 callerGasLocal) {
-        // The actual fee required to pay is:
-        // remote_copy_gas + remote_exec_gas + buffer +
-        // callback_copy_gas + callback_exec_gas + buffer
         if (remoteMinFeeConfig.constantFee > 0) {
             targetGasRemote = remoteMinFeeConfig.constantFee * gasPrice;
         } else {
@@ -157,15 +183,5 @@ abstract contract InboxFeeManager {
             uint256 minLocalGas = expectedMinFee(callBackMethodCallSize, localMinFeeConfig);
             callerGasLocal = (minLocalGas + callBackMethodExecutionGas) * gasPrice;
         }
-    }
-
-    /// @return Minimum required gas units from template (no wei / gasPrice).
-    function expectedMinFee(uint256 dataSize, FeeConfig memory feeConfig) internal pure returns (uint256) {
-        if (feeConfig.constantFee > 0) {
-            return feeConfig.constantFee;
-        }
-        uint256 gasUnits = (dataSize * feeConfig.gasPerByte) + feeConfig.callbackExecutionGas
-            + (feeConfig.errorLength * feeConfig.gasPerByte);
-        return gasUnits * feeConfig.bufferRatioX10000 / 10000;
     }
 }

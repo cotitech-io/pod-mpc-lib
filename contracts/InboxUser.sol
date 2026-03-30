@@ -3,12 +3,15 @@ pragma solidity ^0.8.19;
 
 import "./IInbox.sol";
 
+/// @title InboxUser
+/// @notice Mixin that restricts selected functions to the configured {IInbox} and exposes `inbox`.
 abstract contract InboxUser {
+    /// @notice Cross-chain inbox used for messaging.
     IInbox public inbox;
 
-    error OnlyInbox(address invalidCaller);
+    error OnlyInbox(address caller);
 
-    /// @dev Restrict calls to the configured inbox.
+    /// @dev Reverts unless `msg.sender` is the configured inbox.
     modifier onlyInbox() {
         if (msg.sender != address(inbox)) {
             revert OnlyInbox(msg.sender);
@@ -16,8 +19,8 @@ abstract contract InboxUser {
         _;
     }
 
-    /// @dev Set the inbox contract address.
-    /// @param _inbox The inbox address to use.
+    /// @notice Set the inbox contract (typically once from a constructor or initializer).
+    /// @param _inbox Inbox address.
     function setInbox(address _inbox) internal {
         inbox = IInbox(_inbox);
     }

@@ -2,20 +2,15 @@
 
 pragma solidity ^0.8.19;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
 import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
 import "../../../InboxUser.sol";
 import "./IPodErc20CotiSide.sol";
 
-
-/**
- * @title PodErc20CotiSide
- * @notice COTI-side ledger for {PodERC20}: balances and allowances are stored as `ctUint256` (off-boarded ciphertext), matching the
- *         pattern in {PErc20Coti}. Garbled values (`gtUint256`) exist only in memory: `onBoard`/`offBoard` bridge storage and MPC ops.
- * @dev Only the inbox may call operational entry points, and only for messages from {authorizedRemoteChainId} + {authorizedRemoteContract}.
- *      The owner must call {setAuthorizedRemote} after deploy. All-zero `ctUint256` slots are treated as uninitialized (see {_readGarbledBalance}).
- */
+/// @title PodErc20CotiSide
+/// @notice COTI-side ledger for {PodERC20}: `ctUint256` balances/allowances; garbled `gtUint256` only in memory around MPC ops.
+/// @dev Entry points are inbox-only for the configured remote chain and contract. Owner must {setAuthorizedRemote} after deploy.
 contract PodErc20CotiSide is IPodErc20CotiSide, InboxUser, Ownable {
     // --- State variables ---
 

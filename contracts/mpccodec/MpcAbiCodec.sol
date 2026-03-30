@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.19;
 
-import "../IInbox.sol";
 import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 
-/**
- * @title MpcAbiCodec
- * @notice This contract is used to encode and decode MpcMethodCall structs.
- */
+import "../IInbox.sol";
+
+/// @title MpcAbiCodec
+/// @notice Library to build and re-encode {IInbox.MpcMethodCall} payloads for MPC and ABI dispatch.
+/// @dev Maps it-* wire types to gt-* calldata expected by COTI-side executors.
 library MpcAbiCodec {
     enum MpcDataType {
         UINT256,
@@ -36,25 +36,25 @@ library MpcAbiCodec {
     struct MpcMethodCallContext {
         IInbox.MpcMethodCall mpcMethodCall;
         bytes[] data;
-        uint dataSize;
-        uint argIndex;
+        uint256 dataSize;
+        uint256 argIndex;
     }
-    
+
     /// @notice Create a method call context with selector and argument count.
     /// @param selector The method selector to call on the target contract.
     /// @param argCount The number of arguments expected in the call.
     /// @return context The initialized method call context.
-    function create(bytes4 selector, uint argCount) internal pure returns (MpcMethodCallContext memory) {
+    function create(bytes4 selector, uint256 argCount) internal pure returns (MpcMethodCallContext memory) {
         return MpcMethodCallContext({
             mpcMethodCall: IInbox.MpcMethodCall({
-            selector: selector,
-            data: new bytes(0),
-            datatypes: new bytes8[](argCount),
-            datalens: new bytes32[](argCount)
-        }),
-        data: new bytes[](argCount),
-        dataSize: 0,
-        argIndex: 0
+                selector: selector,
+                data: new bytes(0),
+                datatypes: new bytes8[](argCount),
+                datalens: new bytes32[](argCount)
+            }),
+            data: new bytes[](argCount),
+            dataSize: 0,
+            argIndex: 0
         });
     }
 
@@ -65,7 +65,8 @@ library MpcAbiCodec {
      * @return The updated method call
      */
     function addArgument(MpcMethodCallContext memory methodCall, uint256 arg)
-    internal pure returns (MpcMethodCallContext memory) {
+        internal pure returns (MpcMethodCallContext memory)
+    {
         return _appendArgument(methodCall, abi.encode(arg), MpcDataType.UINT256);
     }
 

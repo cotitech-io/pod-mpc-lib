@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.19;
+
 import "./IInbox.sol";
 
+/// @title IInboxMiner
+/// @notice Miner API: apply mined cross-chain payloads to this chain's inbox and withdraw fees.
 interface IInboxMiner {
-    /// @dev Mined payload: `targetFee` / `callerFee` are **gas unit** budgets (same as {IInbox.Request}).
+    /// @notice Mined inbound request. `targetFee` and `callerFee` are gas unit budgets (see {IInbox.Request}).
     struct MinedRequest {
         bytes32 requestId;
         address sourceContract;
@@ -17,13 +20,11 @@ interface IInboxMiner {
         uint256 callerFee;
     }
 
-    /// @notice Process mined requests and errors for a source chain.
-    /// @param sourceChainId The source chain ID that produced the mined data.
-    /// @param mined The mined requests to process.
-    function batchProcessRequests(
-        uint sourceChainId, MinedRequest[] memory mined
-    ) external;
+    /// @notice Validate and execute a batch of mined requests from `sourceChainId`.
+    /// @param sourceChainId Chain that produced the mined data.
+    /// @param mined Ordered requests to apply.
+    function batchProcessRequests(uint256 sourceChainId, MinedRequest[] memory mined) external;
 
-    /// @notice Withdraws accumulated native token (message fees) to `msg.sender` ({Ownable} owner).
+    /// @notice Withdraw accumulated native token fees to the caller (requires {MinerBase} owner in concrete implementations).
     function collectFees() external;
 }

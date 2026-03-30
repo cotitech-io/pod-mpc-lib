@@ -3,6 +3,8 @@ pragma solidity ^0.8.19;
 
 import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 
+/// @title MpcAbiCodecTests
+/// @notice Storage contract for MPC codec test callbacks.
 contract MpcAbiCodecTests {
     uint256 public lastUint;
     address public lastAddr;

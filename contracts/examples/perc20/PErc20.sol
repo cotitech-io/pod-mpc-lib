@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: UNLICENSED
-
 pragma solidity ^0.8.19;
 
 import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
@@ -9,20 +8,16 @@ import "../../mpc/PodLib.sol";
 import "../../mpc/PodLibBase.sol";
 import "../../mpccodec/MpcAbiCodec.sol";
 
-
-/// @dev COTI executor hook used by this example; must match the deployed COTI-side contract’s `transferFrom` signature.
+/// @dev COTI executor hook; must match deployed `transferFrom` on the COTI example.
 interface IPErc20Coti {
     function transferFrom(address from, gtUint256 calldata to, gtUint64 amount) external;
 }
 
 
 
-/**
- * @title PErc20
- * @notice Minimal PoD-chain example: 64-bit ciphertext balances keyed by `bytes32` identity hash, updated via a two-way inbox
- *         message to a COTI executor (`IPErc20Coti`).
- * @dev This is sample code, not production-ready: no allowance model, no pending-state guards, and balances are `ctUint64` hashes.
- */
+/// @title PErc20
+/// @notice Minimal PoD example: 64-bit balances keyed by hash; two-way inbox to `IPErc20Coti` on COTI.
+/// @dev Sample only: no allowances, weak pending-state story, `ctUint64` balance encoding.
 contract PErc20 is PodLib {
     using MpcAbiCodec for MpcAbiCodec.MpcMethodCallContext;
 

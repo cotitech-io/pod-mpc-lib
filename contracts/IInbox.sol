@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.19;
 
+/// @title IInbox
+/// @notice Cross-chain request/response inbox: send messages to remote chains, execute incoming calls, and query state.
+/// @dev Fee-related fields on {Request} are **gas unit** budgets, not wei. See {InboxFeeManager}.
 interface IInbox {
+    // --- Types ---
+
     struct MpcMethodCall {
         bytes4 selector;
         bytes data;
@@ -21,10 +26,11 @@ interface IInbox {
         bytes4 errorSelector;
         bool isTwoWay;
         bool executed;
-        bytes32 sourceRequestId; // This is in case this request is actually a response to another request
-        /// @dev Gas unit budget for executing the **remote** leg on this chain (`call{gas: ...}` cap). Not wei.
+        /// @dev If this request is a one-way response or error delivery, links to the original two-way request ID.
+        bytes32 sourceRequestId;
+        /// @dev Gas unit budget for the remote execution leg (`call{gas: ...}` cap). Not wei.
         uint256 targetFee;
-        /// @dev Gas unit budget reserved for the **callback** leg on the source chain (one-way responses). Not wei.
+        /// @dev Gas unit budget for the callback leg on the source chain. Not wei.
         uint256 callerFee;
     }
 
@@ -45,13 +51,16 @@ interface IInbox {
         bytes32 requestId;
     }
 
-    /// @notice Send a two-way message to a target chain with callback and error handlers.
-    /// @param targetChainId The target chain ID.
-    /// @param targetContract The target contract address on the target chain.
-    /// @param methodCall The method call metadata and arguments.
-    /// @param callbackSelector Selector to invoke on response.
-    /// @param errorSelector Selector to invoke on error.
-    /// @return requestId The created request ID.
+    // --- External: sends (payable) ---
+
+    /// @notice Send a two-way message with callback and error handlers on the remote chain.
+    /// @param targetChainId Destination chain ID.
+    /// @param targetContract Contract to call on the destination chain.
+    /// @param methodCall Calldata and MPC metadata.
+    /// @param callbackSelector Selector invoked on the source chain when the remote call succeeds.
+    /// @param errorSelector Selector invoked on the source chain when the remote call fails.
+    /// @param callbackFeeLocalWei Wei from `msg.value` reserved for the callback leg (converted to gas units in fee logic).
+    /// @return requestId The new outbound request ID.
     function sendTwoWayMessage(
         uint256 targetChainId,
         address targetContract,
@@ -61,12 +70,12 @@ interface IInbox {
         uint256 callbackFeeLocalWei
     ) external payable returns (bytes32);
 
-    /// @notice Send a one-way message to a target chain with an error handler.
-    /// @param targetChainId The target chain ID.
-    /// @param targetContract The target contract address on the target chain.
-    /// @param methodCall The method call metadata and arguments.
-    /// @param errorSelector Selector to invoke on error.
-    /// @return requestId The created request ID.
+    /// @notice Send a one-way message with an error handler only (no callback).
+    /// @param targetChainId Destination chain ID.
+    /// @param targetContract Contract to call on the destination chain.
+    /// @param methodCall Calldata and MPC metadata.
+    /// @param errorSelector Selector invoked on error.
+    /// @return requestId The new outbound request ID.
     function sendOneWayMessage(
         uint256 targetChainId,
         address targetContract,
@@ -74,58 +83,63 @@ interface IInbox {
         bytes4 errorSelector
     ) external payable returns (bytes32);
 
-    /// @notice Get error information for a failed outgoing request.
-    /// @param requestId The request ID to query.
-    /// @return code The error code.
-    /// @return message The error message.
-    function getOutboxError(bytes32 requestId) external view returns (uint256 code, string memory message);
+    // --- External: execution (non-payable) ---
 
-    /// @notice Get response data for an incoming request.
-    /// @param requestId The request ID to query.
-    /// @return response The response data bytes.
-    function getInboxResponse(bytes32 requestId) external view returns (bytes memory);
-
-    /// @notice Get the sender info for the currently executing message.
-    /// @return chainId The remote chain ID.
-    /// @return contractAddress The remote contract address.
-    function inboxMsgSender() external view returns (uint256 chainId, address contractAddress);
-
-    /// @notice Get the request ID for the currently executing message.
-    /// @return requestId The request ID.
-    function inboxRequestId() external view returns (bytes32);
-
-    /// @notice Get the source request ID for the currently executing message.
-    /// @return sourceRequestId The source request ID.
-    function inboxSourceRequestId() external view returns (bytes32);
-
-    /// @notice Respond to the current incoming message.
-    /// @param data The response payload to send back.
+    /// @notice Respond to the current incoming message (two-way flow).
+    /// @param data Payload routed to the original sender via `callbackSelector`.
     function respond(bytes memory data) external;
 
-    /// @notice Signal an application-level error for the current incoming two-way message (same routing as {respond},
-    ///         but invokes `errorSelector` on the remote caller with `data` as the single `bytes` argument).
-    /// @param data Payload for the remote error callback (e.g. `abi.encode(from, to, reason)` for `transferError(bytes)`).
+    /// @notice Signal an application error for the current incoming two-way message (same routing constraints as {respond}).
+    /// @param data ABI-encoded argument for the remote `errorSelector(bytes)`.
     function raise(bytes memory data) external;
 
-    /// @notice Pack chain ID and nonce into a request ID.
-    /// @param chainId The chain ID.
-    /// @param nonce The request nonce.
-    /// @return requestId The packed request ID.
-    function getRequestId(uint chainId, uint nonce) external pure returns (bytes32);
+    // --- External: views ---
 
-    /// @notice Unpack a request ID into chain ID and nonce.
-    /// @param requestId The packed request ID.
-    /// @return chainId The unpacked chain ID.
-    /// @return nonce The unpacked nonce.
-    function unpackRequestId(bytes32 requestId) external pure returns (uint chainId, uint nonce);
+    /// @notice Return error details for a failed outgoing request.
+    /// @param requestId Outbound request ID.
+    /// @return code Error code.
+    /// @return message Error message or revert data.
+    function getOutboxError(bytes32 requestId) external view returns (uint256 code, string memory message);
 
-    /// @notice Get a range of requests in nonce order.
-    /// @param from The starting index (0-based).
-    /// @param len The number of requests to return.
-    /// @return requestsList The list of requests.
-    function getRequests(uint from, uint len) external view returns (Request[] memory);
+    /// @notice Return stored response bytes for a completed incoming flow.
+    /// @param requestId Incoming request ID.
+    /// @return response Response payload.
+    function getInboxResponse(bytes32 requestId) external view returns (bytes memory);
 
-    /// @notice Get the total number of requests.
-    /// @return count The total request count.
-    function getRequestsLen() external view returns (uint);
+    /// @notice Return a slice of outbound requests in nonce order.
+    /// @param from Start index (0-based).
+    /// @param len Maximum number of requests to return.
+    /// @return requestsList Request structs.
+    function getRequests(uint256 from, uint256 len) external view returns (Request[] memory);
+
+    /// @notice Total count of outbound requests issued from this inbox.
+    /// @return count Number of requests.
+    function getRequestsLen() external view returns (uint256);
+
+    /// @notice Remote chain ID and contract for the currently executing incoming message.
+    /// @return chainId Remote chain ID.
+    /// @return contractAddress Remote caller contract.
+    function inboxMsgSender() external view returns (uint256 chainId, address contractAddress);
+
+    /// @notice Request ID for the currently executing incoming message.
+    /// @return requestId Active request ID.
+    function inboxRequestId() external view returns (bytes32);
+
+    /// @notice Source request ID linked from the current incoming message (if any).
+    /// @return sourceRequestId Linked request ID.
+    function inboxSourceRequestId() external view returns (bytes32);
+
+    // --- External: pure ---
+
+    /// @notice Pack chain ID and nonce (each up to 128 bits) into a request ID.
+    /// @param chainId Chain ID half.
+    /// @param nonce Nonce half.
+    /// @return requestId 256-bit packed ID.
+    function getRequestId(uint256 chainId, uint256 nonce) external pure returns (bytes32);
+
+    /// @notice Split a packed request ID into chain ID and nonce.
+    /// @param requestId Packed ID.
+    /// @return chainId Chain ID half.
+    /// @return nonce Nonce half.
+    function unpackRequestId(bytes32 requestId) external pure returns (uint256 chainId, uint256 nonce);
 }

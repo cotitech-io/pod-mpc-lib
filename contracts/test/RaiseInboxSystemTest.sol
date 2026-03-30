@@ -1,14 +1,11 @@
 // SPDX-License-Identifier: MIT
-
 pragma solidity ^0.8.19;
 
 import "../IInbox.sol";
 import "../InboxUser.sol";
 
-/**
- * @title RaiseInboxTestCoti
- * @notice COTI target: inbox delivers `triggerRaise`, contract forwards to {IInbox.raise}.
- */
+/// @title RaiseInboxTestCoti
+/// @notice System test: COTI target that forwards `triggerRaise` to {IInbox.raise}.
 contract RaiseInboxTestCoti is InboxUser {
     constructor(address inboxAddress) {
         setInbox(inboxAddress);
@@ -19,10 +16,8 @@ contract RaiseInboxTestCoti is InboxUser {
     }
 }
 
-/**
- * @title RaiseInboxTestSepolia
- * @notice Hardhat/Sepolia side: starts a two-way call to {RaiseInboxTestCoti} and records the error callback.
- */
+/// @title RaiseInboxTestSepolia
+/// @notice System test: source chain contract that invokes COTI `triggerRaise` and records error callbacks.
 contract RaiseInboxTestSepolia is InboxUser {
     bytes4 private constant TRIGGER_RAISE = bytes4(keccak256("triggerRaise(bytes)"));
 

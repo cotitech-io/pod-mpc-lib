@@ -5,13 +5,11 @@ import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 
 import "../IInbox.sol";
 import "../mpccodec/MpcAbiCodec.sol";
-import "./PodLibBase.sol";
 import "./coti-side/IPodExecutorOps.sol";
+import "./PodLibBase.sol";
 
-/**
- * @title PodLib64
- * @notice 64-bit POD MPC calls (itUint64 / ctUint64) and comparison to ctBool.
- */
+/// @title PodLib64
+/// @notice 64-bit POD MPC helpers (`itUint64` / `ctUint64`) and comparisons to `ctBool`.
 abstract contract PodLib64 is PodLibBase {
     using MpcAbiCodec for MpcAbiCodec.MpcMethodCallContext;
 

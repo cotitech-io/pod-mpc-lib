@@ -6,7 +6,8 @@ import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 import "../../mpc/PodLib.sol";
 import "../../mpc/PodLibBase.sol";
 
-/// @notice Harness for 128-bit PodLib operations.
+/// @title PodTest128
+/// @notice Test harness for 128-bit {PodLib} operations.
 contract PodTest128 is PodLib {
     bytes public lastResult;
     bytes32 public lastRequestId;

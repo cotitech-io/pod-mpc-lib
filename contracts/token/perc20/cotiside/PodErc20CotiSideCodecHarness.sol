@@ -1,15 +1,10 @@
 // SPDX-License-Identifier: MIT
-
 pragma solidity ^0.8.19;
 
 import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 
-
-/**
- * @title PodErc20CotiSideCodecHarness
- * @notice Pure helpers to build and parse payloads aligned with {PodERC20} callbacks and {PodErc20CotiSide} `respond` / `raise`
- *         encodings. Intended for Hardhat/Foundry tests—not for production deployment.
- */
+/// @title PodErc20CotiSideCodecHarness
+/// @notice Test-only helpers for {PodERC20} / {PodErc20CotiSide} callback and error payload encoding.
 contract PodErc20CotiSideCodecHarness {
     // --- Constants ---
 

@@ -6,7 +6,8 @@ import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 import "../../mpc/PodLib.sol";
 import "../../mpc/PodLibBase.sol";
 
-/// @notice Harness: one external call per 64-bit PodLib op; stores raw callback bytes in lastResult.
+/// @title PodTest64
+/// @notice Test harness: one external per 64-bit {PodLib} op; stores last callback bytes.
 contract PodTest64 is PodLib {
     bytes public lastResult;
     bytes32 public lastRequestId;

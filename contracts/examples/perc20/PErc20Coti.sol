@@ -1,19 +1,13 @@
 // SPDX-License-Identifier: UNLICENSED
-
 pragma solidity ^0.8.19;
 
 import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 
 import "../../InboxUser.sol";
 
-
-/**
- * @title PErc20Coti
- * @notice COTI-side counterpart to {PErc20}: holds `ctUint64` balances under `keccak256(abi.encode(account))` and moves funds via
- *         garbled 64-bit arithmetic when the inbox delivers `transferFrom`.
- * @dev **Gotcha:** decrypts `to` to a plain address to derive the recipient hash—recipient privacy is not preserved on this contract.
- *      **Gotcha:** initial supply is minted to `msg.sender`’s hash in the constructor only.
- */
+/// @title PErc20Coti
+/// @notice COTI-side ledger for {PErc20}: `ctUint64` balances by `keccak256(abi.encode(account))`.
+/// @dev Recipient address is derived in plaintext for routing—privacy is limited. Constructor mints to deployer hash only.
 contract PErc20Coti is InboxUser {
     uint64 private constant TOTAL_SUPPLY = 1_000_000;
 

@@ -4,16 +4,12 @@ pragma solidity ^0.8.19;
 import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 
 import "../IInbox.sol";
-import "./PodUser.sol";
 import "../mpccodec/MpcAbiCodec.sol";
+import "./PodUser.sol";
 
-/**
- * @title PodLibBase
- * @notice Shared POD helpers: codec wiring and default MPC error handler.
- * @dev **Fees:** The caller must supply how much native token to attach (`totalValueWei`, usually `msg.value` from a payable entry)
- *      and how much of that is reserved for the **callback** leg (`callbackFeeLocalWei`). The inbox derives the remote leg from
- *      `totalValueWei - callbackFeeLocalWei` after converting to gas units. This library does **not** derive fees from `tx.gasprice`.
- */
+/// @title PodLibBase
+/// @notice Shared POD helpers: fee-aware two-way sends and default outbox error surfacing.
+/// @dev Callers supply `totalValueWei` and `callbackFeeLocalWei`; the inbox splits into gas units. Not responsible for `tx.gasprice`.
 abstract contract PodLibBase is PodUser {
     using MpcAbiCodec for MpcAbiCodec.MpcMethodCallContext;
 

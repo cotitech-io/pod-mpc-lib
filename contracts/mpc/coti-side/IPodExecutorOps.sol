@@ -3,9 +3,10 @@ pragma solidity ^0.8.19;
 
 import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 
-/**
- * @notice 64-bit executor ops. Distinct names so PodLib can use `.selector` unambiguously.
- */
+/// @title IPodExecutorOps
+/// @notice COTI-side MPC executor interfaces: 64-, 128-, and 256-bit operations with distinct selectors for {PodLib} dispatch.
+
+/// @notice 64-bit executor ops (distinct names for unambiguous `.selector` use in {PodLib64}).
 interface IPodExecutor64 {
     function add64(gtUint64 a, gtUint64 b, address cOwner) external;
     function sub64(gtUint64 a, gtUint64 b, address cOwner) external;
@@ -26,9 +27,11 @@ interface IPodExecutor64 {
     function mux64(gtBool bit, gtUint64 a, gtUint64 b, address cOwner) external;
     function shl64(gtUint64 a, uint8 s, address cOwner) external;
     function shr64(gtUint64 a, uint8 s, address cOwner) external;
-    /// @notice Plaintext random: inbox payload is `abi.encode(uint256)` (not ctUint64).
+
+    /// @notice Plaintext random; inbox payload is `abi.encode(uint256)` (not `ctUint64`).
     function rand64(address cOwner) external;
-    /// @notice Plaintext random: inbox payload is `abi.encode(uint256)` (not ctUint64).
+
+    /// @notice Plaintext random; inbox payload is `abi.encode(uint256)` (not `ctUint64`).
     function randBoundedBits64(uint8 numBits, address cOwner) external;
 }
 
@@ -51,9 +54,11 @@ interface IPodExecutor128 {
     function mux128(gtBool bit, gtUint128 memory a, gtUint128 memory b, address cOwner) external;
     function shl128(gtUint128 memory a, uint8 s, address cOwner) external;
     function shr128(gtUint128 memory a, uint8 s, address cOwner) external;
-    /// @notice Plaintext random: inbox payload is `abi.encode(uint256)` (not ctUint128).
+
+    /// @notice Plaintext random; inbox payload is `abi.encode(uint256)` (not `ctUint128`).
     function rand128(address cOwner) external;
-    /// @notice Plaintext random: inbox payload is `abi.encode(uint256)` (not ctUint128).
+
+    /// @notice Plaintext random; inbox payload is `abi.encode(uint256)` (not `ctUint128`).
     function randBoundedBits128(uint8 numBits, address cOwner) external;
 }
 
@@ -76,8 +81,10 @@ interface IPodExecutor256 {
     function mux256(gtBool bit, gtUint256 memory a, gtUint256 memory b, address cOwner) external;
     function shl256(gtUint256 memory a, uint8 s, address cOwner) external;
     function shr256(gtUint256 memory a, uint8 s, address cOwner) external;
-    /// @notice Plaintext random: inbox payload is `abi.encode(uint256)` (not ctUint256).
+
+    /// @notice Plaintext random; inbox payload is `abi.encode(uint256)` (not `ctUint256`).
     function rand256(address cOwner) external;
-    /// @notice Plaintext random: inbox payload is `abi.encode(uint256)` (not ctUint256).
+
+    /// @notice Plaintext random; inbox payload is `abi.encode(uint256)` (not `ctUint256`).
     function randBoundedBits256(uint8 numBits, address cOwner) external;
 }

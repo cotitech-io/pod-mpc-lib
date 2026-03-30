@@ -1,21 +1,14 @@
 // SPDX-License-Identifier: MIT
-
 pragma solidity ^0.8.19;
 
 import "../../InboxUser.sol";
 import "../../mpccodec/MpcAbiCodec.sol";
-import "./cotiside/IPodErc20CotiSide.sol";
 import "./IPodERC20.sol";
+import "./cotiside/IPodErc20CotiSide.sol";
 
-
-/**
- * @title PodERC20
- * @notice PoD-chain half of a cross-chain private ERC-20: ciphertext balances and allowances are cached here while
- *         authoritative garbled balances and MPC operations run on COTI via {IPodErc20CotiSide}.
- * @dev All user-facing moves are asynchronous (`sendTwoWayMessage`). Callbacks (`transferCallback`, etc.) are **only** accepted
- *      from `inbox` when the cross-chain sender is (`cotiChainId`, `cotiSideContract`). **Gotcha:** `setPublicAmountsEnabled`
- *      has no access control in this contract—lock down or replace for production.
- */
+/// @title PodERC20
+/// @notice PoD-side private ERC-20: ciphertext cache and inbox-mediated async moves; COTI holds authoritative garbled state via {IPodErc20CotiSide}.
+/// @dev Callbacks only from `inbox` when the remote peer matches (`cotiChainId`, `cotiSideContract`). `setPublicAmountsEnabled` is not access-controlled—harden for production.
 contract PodERC20 is IPodERC20, InboxUser {
     using MpcAbiCodec for MpcAbiCodec.MpcMethodCallContext;
 

@@ -1,16 +1,11 @@
 // SPDX-License-Identifier: MIT
-
 pragma solidity ^0.8.19;
 
 import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 
-/**
- * @title IPodERC20
- * @notice Privacy-on-demand ERC-20 surface: balances and allowances are MPC ciphertexts (`ctUint256`), while
- *         moves are requested with input text (`itUint256`) and settled asynchronously via the inbox and a COTI-side ledger.
- * @dev This is not a drop-in replacement for `IERC20`: there is no synchronous success flag; most mutating calls return a
- *      `requestId` and complete when the inbox invokes the matching callback. Only the configured COTI peer may satisfy callbacks.
- */
+/// @title IPodERC20
+/// @notice Async private ERC-20: `ctUint256` balances/allowances; moves use `itUint256` and inbox + COTI settlement.
+/// @dev Not IERC20-compatible: mutating calls return `requestId`; only the configured COTI peer may complete callbacks.
 interface IPodERC20 {
     // --- Types ---
 

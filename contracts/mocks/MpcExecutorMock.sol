@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.19;
 
-import "../IInbox.sol";
-import "../InboxUser.sol";
 import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 
-/// @dev Local mock: add64 / gt64 / add128 / add256 only (not full IPodExecutor* surface).
+import "../IInbox.sol";
+import "../InboxUser.sol";
+
+/// @title MpcExecutorMock
+/// @notice Local stub executor: subset of `add`/`gt` paths for inbox integration tests (not full {IPodExecutor*}).
 contract MpcExecutorMock is InboxUser {
     event AddResult(uint c, address cOwner);
     event Add128Result(uint high, uint low, address cOwner);

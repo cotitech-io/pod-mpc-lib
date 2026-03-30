@@ -16,7 +16,6 @@ contract PriceOracle is Ownable {
     /// @dev Combined with {fetchInterval}: both gates must pass (when enabled) before Uniswap is queried.
     uint256 public fetchBlockInterval;
     uint256 public lastFetchTimestamp;
-    uint256 public lastFetchBlock;
     uint256 public localTokenPriceUSDX128; // eth
     uint256 public remoteTokenPriceUSDX128; // coti
     address public priceAdmin;
@@ -39,41 +38,20 @@ contract PriceOracle is Ownable {
     ///        the expensive branch will run; if `canFetch` differs between simulation and mining, your `fetchPrices` tx
     ///        can still revert or use different gas — prefer a generous gas limit or a separate `fetchPrices` tx.
     function fetchPrices() external {
-        _requireFetchIntervalsElapsed();
+        if (!_fetchIntervalsElapsed()) {
+            return;
+        }
+
         lastFetchTimestamp = block.timestamp;
-        lastFetchBlock = block.number;
         localTokenPriceUSDX128 = fetchLocalTokenPriceUSDX128();
         remoteTokenPriceUSDX128 = fetchRemoteTokenPriceUSDX128();
-    }
-
-    /// @notice Same interval logic as {fetchPrices} but view-only: returns whether a {fetchPrices} call would pull new
-    ///         prices and the prices that would be written (without storing). Use off-chain or in `eth_call` to align
-    ///         gas estimates with the branch you expect at a given block.
-    function previewFetchPrices()
-        external
-        view
-        returns (bool canFetch, uint256 localPrice, uint256 remotePrice)
-    {
-        if (!_fetchIntervalsElapsed()) {
-            return (false, localTokenPriceUSDX128, remoteTokenPriceUSDX128);
-        }
-        return (true, fetchLocalTokenPriceUSDX128(), fetchRemoteTokenPriceUSDX128());
     }
 
     function _fetchIntervalsElapsed() internal view returns (bool) {
         if (fetchInterval != 0 && lastFetchTimestamp != 0 && block.timestamp - lastFetchTimestamp < fetchInterval) {
             return false;
         }
-        if (fetchBlockInterval != 0 && lastFetchBlock != 0 && block.number < lastFetchBlock + fetchBlockInterval) {
-            return false;
-        }
         return true;
-    }
-
-    function _requireFetchIntervalsElapsed() internal view {
-        if (!_fetchIntervalsElapsed()) {
-            revert FetchIntervalNotMet();
-        }
     }
 
     function setFetchInterval(uint256 secondsBetweenFetches) external onlyOwner {
@@ -91,13 +69,11 @@ contract PriceOracle is Ownable {
     function setLocalTokenPriceUSDX128(uint256 price) external onlyPriceAdmin {
         localTokenPriceUSDX128 = price;
         lastFetchTimestamp = block.timestamp;
-        lastFetchBlock = block.number;
     }
 
     function setRemoteTokenPriceUSDX128(uint256 price) external onlyPriceAdmin {
         remoteTokenPriceUSDX128 = price;
         lastFetchTimestamp = block.timestamp;
-        lastFetchBlock = block.number;
     }
 
     function getLocalTokenPriceUSDX128() external view returns (uint256) {

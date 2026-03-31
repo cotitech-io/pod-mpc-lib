@@ -1,12 +1,17 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { network } from "hardhat";
 import {
   appendDeploymentLog,
   asAddress,
+  deployAndWireTestnetPriceOracle,
   getChainConfig,
   getViemClients,
   readDeployConfig,
   requireEnv,
 } from "./deploy-utils.js";
+
+const deployConfigPath = path.resolve(process.cwd(), "deployConfig.json");
 
 const main = async () => {
   console.log("[deploy-inbox] Connecting to network from CLI");
@@ -36,6 +41,16 @@ const main = async () => {
   await inbox.write.addMiner([minerAddress]);
   console.log("[deploy-inbox] Miner added");
 
+  console.log("[deploy-inbox] Deploying PriceOracle and wiring inbox...");
+  const priceOracle = await deployAndWireTestnetPriceOracle({
+    viem,
+    publicClient,
+    walletClient,
+    chainId,
+    inbox,
+  });
+  console.log(`[deploy-inbox] PriceOracle deployed and set on inbox: ${priceOracle.address}`);
+
   console.log("[deploy-inbox] Writing deployment log entry");
   await appendDeploymentLog({
     contract: "Inbox",
@@ -43,6 +58,18 @@ const main = async () => {
     chainId,
     network: networkLabel,
   });
+  await appendDeploymentLog({
+    contract: "PriceOracle",
+    address: priceOracle.address,
+    chainId,
+    network: networkLabel,
+  });
+
+  existingChainConfig.inbox = inbox.address;
+  existingChainConfig.priceOracle = priceOracle.address;
+  await fs.writeFile(deployConfigPath, `${JSON.stringify(deployConfig, null, 2)}\n`, "utf8");
+  console.log("[deploy-inbox] Updated deployConfig.json");
+
   console.log("[deploy-inbox] Done");
 };
 

@@ -13,6 +13,8 @@ import "./PodUser.sol";
 abstract contract PodLibBase is PodUser {
     using MpcAbiCodec for MpcAbiCodec.MpcMethodCallContext;
 
+    constructor(address initialOwner) PodUser(initialOwner) {}
+
     /// @dev Minimum callback slice in wei; inbox applies stricter policy from {InboxFeeManager}.
     uint256 internal constant MIN_CALLBACK_FEE_WEI = 1;
 

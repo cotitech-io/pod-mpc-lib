@@ -328,7 +328,7 @@ contract InboxBase is IInbox, InboxFeeManager {
         requests[requestId] = request;
 
         emit MessageSent(requestId, targetChainId, targetContract, methodCall, callbackSelector, errorSelector);
-
+        priceOracle.fetchPrices();
         return requestId;
     }
 

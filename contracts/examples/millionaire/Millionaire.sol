@@ -13,7 +13,7 @@ import { PodLibBase } from "../../mpc/PodLibBase.sol";
 contract Millionaire is PodLib {
     event RevealResult(bytes32 indexed requestId, ctBool result);
 
-    constructor(address _inbox) {
+    constructor(address _inbox) PodLibBase(msg.sender) {
         setInbox(_inbox);
     }
 

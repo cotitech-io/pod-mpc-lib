@@ -24,7 +24,7 @@ contract PErc20 is PodLib {
     mapping(bytes32 => ctUint64) public balanceOf;
 
     /// @param _inbox Inbox used for {PodLib.setInbox}.
-    constructor(address _inbox) {
+    constructor(address _inbox) PodLibBase(msg.sender) {
         setInbox(_inbox);
     }
 

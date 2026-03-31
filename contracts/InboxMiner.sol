@@ -86,13 +86,8 @@ contract InboxMiner is InboxBase, MinerBase, IInboxMiner {
     }
 
     /// @inheritdoc IInboxMiner
-    function collectFees() external onlyOwner {
-        uint256 amount = address(this).balance;
-        if (amount == 0) {
-            return;
-        }
-        (bool ok,) = payable(msg.sender).call{value: amount}("");
-        require(ok, "Inbox: fee transfer failed");
+    function collectFees(address payable to) external onlyOwner {
+        _collectFees(to);
     }
 
     /// @dev Executes one mined request: encode calldata, call target with `gas` from `targetFee`, record errors.
@@ -119,7 +114,7 @@ contract InboxMiner is InboxBase, MinerBase, IInboxMiner {
             return;
         }
 
-        uint256 targetGasBudget = incomingRequest.targetFee;
+        uint256 targetGasBudget = _localRequestExecutionBudget(incomingRequest.targetFee);
         uint256 gasBeforeSubcall = gasleft();
 
         bool success;

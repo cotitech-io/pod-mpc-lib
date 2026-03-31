@@ -84,21 +84,6 @@ interface IPodERC20 {
      */
     function balanceOfWithStatus(address account) external view returns (ctUint256 memory, bool pending);
 
-    // --- Public amount toggle (optional plain-uint paths may be gated by the implementation) ---
-
-    /**
-     * @notice Whether plain `uint256` amount entry points are allowed (if implemented).
-     * @dev The interface reserves commented plain-amount variants; implementations may tie them to this flag.
-     */
-    function publicAmountsEnabled() external view returns (bool);
-
-    /**
-     * @notice Enables or disables plain public amount operations where the implementation supports them.
-     * @dev **Gotcha:** the reference implementation does not restrict who may call this; treat as admin-only in production or
-     *      override with access control.
-     */
-    function setPublicAmountsEnabled(bool enabled) external;
-
     // --- Transfers ---
 
     /**

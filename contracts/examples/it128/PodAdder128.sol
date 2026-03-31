@@ -15,7 +15,7 @@ contract PodAdder128 is PodLib {
 
     /// @notice Create an MPC adder bound to an inbox.
     /// @param _inbox The inbox contract address.
-    constructor(address _inbox) {
+    constructor(address _inbox) PodLibBase(msg.sender) {
         setInbox(_inbox);
     }
 

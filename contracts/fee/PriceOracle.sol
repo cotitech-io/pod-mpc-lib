@@ -39,8 +39,10 @@ contract PriceOracle is Ownable {
         _;
     }
 
-    /// @param initialOwner {Ownable} owner.
-    constructor(address initialOwner) Ownable(initialOwner) {}
+    /// @param initialOwner {Ownable} owner; also initial {priceAdmin} so prices can be set without a separate admin tx.
+    constructor(address initialOwner) Ownable(initialOwner) {
+        priceAdmin = initialOwner;
+    }
 
     /// @notice Refresh cached prices when the time gate allows.
     /// @dev Interval checks are cheap storage reads only. Inbox fee paths use {getLocalTokenPriceUSDX128}/{getRemoteTokenPriceUSDX128} only (no pull). Use {previewFetchPrices} with `estimateGas` when budgeting `fetchPrices`.

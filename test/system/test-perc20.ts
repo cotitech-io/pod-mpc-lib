@@ -22,6 +22,7 @@ import {
   setupContext,
   type TestContext,
 } from "./mpc-test-utils.js";
+import { podConfigureKeepInbox } from "../../scripts/deploy-utils.js";
 
 const BATCH_PROCESS_SELECTOR = toFunctionSelector(
   "batchProcessRequests(uint256,(bytes32,address,address,(bytes4,bytes,bytes8[],bytes32[]),bytes4,bytes4,bool,bytes32,uint256,uint256)[])"
@@ -163,7 +164,9 @@ describe("PErc20 (system)", async function () {
         },
       } as any
     );
-    await pErc20.write.configureCoti([pErc20Coti.address, ctx.chainIds.coti]);
+    await pErc20.write.configure(
+      podConfigureKeepInbox(ctx.contracts.mpcExecutor.address, ctx.chainIds.coti)
+    );
 
     secondaryUser = await setupSecondaryUser(cotiPrivateKey);
   });

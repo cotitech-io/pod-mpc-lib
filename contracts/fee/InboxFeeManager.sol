@@ -37,6 +37,27 @@ abstract contract InboxFeeManager {
     error CallbackFeeTooLow(uint256 callbackFee);
     error TargetFeeTooLow(uint256 targetFee);
     error FeeConfigInvalid(FeeConfig feeConfig);
+    error CollectFeesZeroAddress();
+
+    /// @notice Send the contract's entire native balance to `to` (typically called by an owner-gated wrapper).
+    /// @param to Recipient of accumulated message fees; must not be zero.
+    function _collectFees(address payable to) internal {
+        if (to == address(0)) revert CollectFeesZeroAddress();
+        uint256 amount = address(this).balance;
+        if (amount == 0) {
+            return;
+        }
+        (bool ok,) = to.call{value: amount}("");
+        require(ok, "Inbox: fee transfer failed");
+    }
+
+    function _localRequestExecutionBudget(uint256 totalFee) internal view returns (uint256) {
+        if (localMinFeeConfig.constantFee > 0) {
+            return totalFee;
+        }
+        uint256 errorBuffer = localMinFeeConfig.errorLength * localMinFeeConfig.gasPerByte;
+        return totalFee > errorBuffer ? totalFee - errorBuffer : 0;
+    }
 
     /// @notice Point the fee manager at a price oracle.
     /// @param priceOracleAddress Oracle contract address.

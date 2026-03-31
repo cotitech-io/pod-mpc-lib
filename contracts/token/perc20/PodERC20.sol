@@ -25,7 +25,6 @@ contract PodERC20 is IPodERC20, InboxUser {
     /// @dev One in-flight transfer or burn per address (used as both sender and receiver lock for transfers).
     mapping(address => bytes32) private _pendingTransferRequestIds;
     mapping(address => mapping(address => bytes32)) private _pendingApprovalRequestIds;
-    bool private _publicAmountsEnabled;
     /// @dev Optional `transferAndCall` payload keyed by inbox `sourceRequestId`, cleared after callback.
     mapping(bytes32 => bytes) private _requestCallbacks;
     mapping(bytes32 => bytes) public failedRequests;
@@ -74,14 +73,6 @@ contract PodERC20 is IPodERC20, InboxUser {
     receive() external payable {}
 
     // --- External: mutating (user / admin) ---
-
-    /**
-     * @notice Toggles whether future plain-uint amount helpers (if you add them) should be allowed.
-     * @dev **Gotcha:** callable by any address; add `onlyOwner` (or similar) if this must be admin-only.
-     */
-    function setPublicAmountsEnabled(bool enabled) external {
-        _publicAmountsEnabled = enabled;
-    }
 
     /**
      * @inheritdoc IPodERC20
@@ -273,11 +264,6 @@ contract PodERC20 is IPodERC20, InboxUser {
     }
 
     // --- External: views ---
-
-    /// @inheritdoc IPodERC20
-    function publicAmountsEnabled() external view returns (bool) {
-        return _publicAmountsEnabled;
-    }
 
     /// @inheritdoc IPodERC20
     function balanceOf(address account) external view returns (ctUint256 memory) {

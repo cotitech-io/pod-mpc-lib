@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { decodeAbiParameters, defineChain, toFunctionSelector, toHex } from "viem";
+import { podConfigureKeepInbox } from "../../scripts/deploy-utils.js";
 import { privateKeyToAccount } from "viem/accounts";
 import { ONBOARD_CONTRACT_ADDRESS, Wallet as CotiWallet } from "@coti-io/coti-ethers";
 import { JsonRpcProvider } from "ethers";
@@ -208,7 +209,7 @@ export type InboxFeeSweepContext = {
 };
 
 /**
- * Calls `collectFees()` on Hardhat and COTI inbox contracts (owner-only) so test runs do not strand ETH on the inbox.
+ * Calls `collectFees(to)` on Hardhat and COTI inbox contracts (owner-only) so test runs do not strand ETH on the inbox.
  * Intended for `afterEach` in cross-chain integration tests. Skips when balance is zero; logs and continues on failure
  * (e.g. reused inbox with a different owner).
  */
@@ -219,7 +220,7 @@ export async function collectInboxFeesAfterTest(ctx: InboxFeeSweepContext): Prom
     const bal = await publicClient.getBalance({ address: addr });
     if (bal === 0n) return;
     try {
-      const hash = await inbox.write.collectFees({ account: wallet.account });
+      const hash = await inbox.write.collectFees([wallet.account.address], { account: wallet.account });
       await publicClient.waitForTransactionReceipt({ hash, ...receiptWaitOptions });
     } catch (e) {
       logStep(`collectInboxFeesAfterTest(${label}): ${e instanceof Error ? e.message : String(e)}`);
@@ -977,7 +978,7 @@ export const setupContext = async (params: {
 
   if (!reuseSepolia || !reuseCoti) {
     logStep("Configuring COTI executor + miner");
-    await mpcAdder.write.configureCoti([mpcExecutor.address, cotiChainId]);
+    await mpcAdder.write.configure(podConfigureKeepInbox(mpcExecutor.address, cotiChainId));
     const cotiOwner = await inboxCoti.read.owner();
     logStep(`COTI inbox owner ${cotiOwner}`);
     const alreadyMiner = await inboxCoti.read.isMiner([cotiWallet.account.address]);
@@ -993,7 +994,7 @@ export const setupContext = async (params: {
       logStep("COTI miner already configured");
     }
   } else {
-    logStep("Skipping configureCoti/addMiner (reused contracts)");
+    logStep("Skipping configure/addMiner (reused contracts)");
   }
 
   const sepoliaMiner = sepoliaWallet.account.address;
@@ -1179,7 +1180,7 @@ export const setupContextWideMpc = async (
 
   if (!reuseSepolia || !reuseCoti) {
     logStep("Configuring COTI executor + miner");
-    await mpcAdder.write.configureCoti([mpcExecutor.address, cotiChainId]);
+    await mpcAdder.write.configure(podConfigureKeepInbox(mpcExecutor.address, cotiChainId));
     const cotiOwner = await inboxCoti.read.owner();
     logStep(`COTI inbox owner ${cotiOwner}`);
     const alreadyMiner = await inboxCoti.read.isMiner([cotiWallet.account.address]);
@@ -1195,7 +1196,7 @@ export const setupContextWideMpc = async (
       logStep("COTI miner already configured");
     }
   } else {
-    logStep("Skipping configureCoti/addMiner (reused contracts)");
+    logStep("Skipping configure/addMiner (reused contracts)");
   }
 
   const sepoliaMiner = sepoliaWallet.account.address;
@@ -1452,7 +1453,7 @@ export const setupPodTestContext = async (params: {
 
   if (!reuseSepolia || !reuseCotiFull) {
     logStep("Configuring COTI executor + miner (pod test)");
-    await podTest.write.configureCoti([mpcExecutor.address, cotiChainId]);
+    await podTest.write.configure(podConfigureKeepInbox(mpcExecutor.address, cotiChainId));
     const cotiOwner = await inboxCoti.read.owner();
     logStep(`COTI inbox owner ${cotiOwner}`);
     const alreadyMiner = await inboxCoti.read.isMiner([cotiWallet.account.address]);
@@ -1468,7 +1469,7 @@ export const setupPodTestContext = async (params: {
       logStep("COTI miner already configured");
     }
   } else {
-    logStep("Skipping configureCoti/addMiner (reused Sepolia + full COTI cache)");
+    logStep("Skipping configure/addMiner (reused Sepolia + full COTI cache)");
   }
 
   const sepoliaMiner = sepoliaWallet.account.address;

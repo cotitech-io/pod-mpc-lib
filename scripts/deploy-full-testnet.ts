@@ -5,8 +5,10 @@ import { network } from "hardhat";
 import {
   appendDeploymentLog,
   asAddress,
+  deployAndWireTestnetPriceOracle,
   getChainConfig,
   getViemClients,
+  podConfigureKeepInbox,
   readDeployConfig,
   requireEnv,
 } from "./deploy-utils.js";
@@ -88,9 +90,24 @@ const main = async () => {
   console.log("[deploy-full-testnet] Adding source miner...");
   await sourceInbox.write.addMiner([minerAddress]);
   console.log("[deploy-full-testnet] Source miner added");
+  console.log("[deploy-full-testnet] Deploying source PriceOracle and wiring inbox...");
+  const sourcePriceOracle = await deployAndWireTestnetPriceOracle({
+    viem: sourceViem,
+    publicClient: sourcePublicClient,
+    walletClient: sourceWalletClient,
+    chainId: sourceChainId,
+    inbox: sourceInbox,
+  });
+  console.log(`[deploy-full-testnet] Source PriceOracle: ${sourcePriceOracle.address}`);
   await appendDeploymentLog({
     contract: "Inbox",
     address: sourceInbox.address,
+    chainId: sourceChainId,
+    network: sourceChainLabel,
+  });
+  await appendDeploymentLog({
+    contract: "PriceOracle",
+    address: sourcePriceOracle.address,
     chainId: sourceChainId,
     network: sourceChainLabel,
   });
@@ -108,9 +125,24 @@ const main = async () => {
   console.log("[deploy-full-testnet] Adding COTI miner...");
   await cotiInbox.write.addMiner([minerAddress]);
   console.log("[deploy-full-testnet] COTI miner added");
+  console.log("[deploy-full-testnet] Deploying COTI PriceOracle and wiring inbox...");
+  const cotiPriceOracle = await deployAndWireTestnetPriceOracle({
+    viem: cotiViem,
+    publicClient: cotiPublicClient,
+    walletClient: cotiWalletClient,
+    chainId: cotiChainIdNumber,
+    inbox: cotiInbox,
+  });
+  console.log(`[deploy-full-testnet] COTI PriceOracle: ${cotiPriceOracle.address}`);
   await appendDeploymentLog({
     contract: "Inbox",
     address: cotiInbox.address,
+    chainId: cotiChainIdNumber,
+    network: cotiChainLabel,
+  });
+  await appendDeploymentLog({
+    contract: "PriceOracle",
+    address: cotiPriceOracle.address,
     chainId: cotiChainIdNumber,
     network: cotiChainLabel,
   });
@@ -132,7 +164,7 @@ const main = async () => {
     const fundM = await sourceWalletClient.sendTransaction({ to: millionaire.address, value: 10n ** 18n });
     await sourcePublicClient.waitForTransactionReceipt({ hash: fundM });
     console.log("[deploy-full-testnet] Configuring Millionaire...");
-    await millionaire.write.configureCoti([cotiExecutor.address, cotiChainId]);
+    await millionaire.write.configure(podConfigureKeepInbox(cotiExecutor.address, cotiChainId));
     console.log("[deploy-full-testnet] Millionaire configured");
     await appendDeploymentLog({
       contract: "Millionaire",
@@ -150,7 +182,7 @@ const main = async () => {
   const fundAdder = await sourceWalletClient.sendTransaction({ to: mpcAdder.address, value: 10n ** 18n });
   await sourcePublicClient.waitForTransactionReceipt({ hash: fundAdder });
   console.log("[deploy-full-testnet] Configuring MpcAdder...");
-  await mpcAdder.write.configureCoti([cotiExecutor.address, cotiChainId]);
+  await mpcAdder.write.configure(podConfigureKeepInbox(cotiExecutor.address, cotiChainId));
   console.log("[deploy-full-testnet] MpcAdder configured");
   await appendDeploymentLog({
     contract: "MpcAdder",
@@ -170,7 +202,7 @@ const main = async () => {
     const fundPe = await sourceWalletClient.sendTransaction({ to: pErc20.address, value: 10n ** 18n });
     await sourcePublicClient.waitForTransactionReceipt({ hash: fundPe });
     console.log("[deploy-full-testnet] Configuring PErc20...");
-    await pErc20.write.configureCoti([cotiExecutor.address, cotiChainId]);
+    await pErc20.write.configure(podConfigureKeepInbox(cotiExecutor.address, cotiChainId));
     console.log("[deploy-full-testnet] PErc20 configured");
     await appendDeploymentLog({
       contract: "PErc20",
@@ -195,14 +227,28 @@ const main = async () => {
   const deployConfig = await readDeployConfig();
   const sourceChainConfig = getChainConfig(deployConfig, sourceChainId, "source");
   sourceChainConfig.inbox = sourceInbox.address;
+  sourceChainConfig.priceOracle = sourcePriceOracle.address;
   const cotiChainConfig = getChainConfig(deployConfig, cotiChainIdNumber, "coti");
   cotiChainConfig.inbox = cotiInbox.address;
   cotiChainConfig.cotiExecutor = cotiExecutor.address;
+  cotiChainConfig.priceOracle = cotiPriceOracle.address;
   await fs.writeFile(deployConfigPath, `${JSON.stringify(deployConfig, null, 2)}\n`, "utf8");
   console.log("[deploy-full-testnet] Updated deployConfig.json");
 
   await verifyContract(SOURCE_NETWORK, "Inbox", sourceInbox.address, ["0"]);
+  await verifyContract(
+    SOURCE_NETWORK,
+    "PriceOracle",
+    sourcePriceOracle.address,
+    [sourceWalletClient.account.address]
+  );
   await verifyContract(COTI_NETWORK, "Inbox", cotiInbox.address, ["0"]);
+  await verifyContract(
+    COTI_NETWORK,
+    "PriceOracle",
+    cotiPriceOracle.address,
+    [cotiWalletClient.account.address]
+  );
   await verifyContract(COTI_NETWORK, "MpcExecutor", cotiExecutor.address, [cotiInbox.address]);
   if (millionaireAddress) {
     await verifyContract(SOURCE_NETWORK, "Millionaire", millionaireAddress, [sourceInbox.address]);

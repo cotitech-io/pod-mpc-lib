@@ -23,6 +23,7 @@ import {
   DEFAULT_POD_CALLBACK_FEE_WEI,
   podTwoWayWriteOptions,
 } from "./mpc-test-utils.js";
+import { podConfigureKeepInbox } from "../../scripts/deploy-utils.js";
 
 describe("Millionaire (system)", async function () {
   const { viem: sepoliaViem } = await network.connect({ network: "hardhat" });
@@ -98,7 +99,7 @@ describe("Millionaire (system)", async function () {
     const millionaireAsB = await sepoliaViem.getContractAt("Millionaire", deployed.address, {
       client: { public: ctx.sepolia.publicClient, wallet: walletB },
     });
-    await millionaire.write.configureCoti([ctx.contracts.mpcExecutor.address, ctx.chainIds.coti]);
+    await millionaire.write.configure(podConfigureKeepInbox(ctx.contracts.mpcExecutor.address, ctx.chainIds.coti));
     return { millionaire, millionaireAsB };
   };
 

@@ -4,6 +4,7 @@ import {
   asAddress,
   getChainConfig,
   getViemClients,
+  podConfigureKeepInbox,
   readDeployConfig,
 } from "./deploy-utils.js";
 
@@ -44,7 +45,7 @@ const main = async () => {
     const fundM = await walletClient.sendTransaction({ to: millionaire.address, value: 10n ** 18n });
     await publicClient.waitForTransactionReceipt({ hash: fundM });
     console.log("[deploy-examples-source] Configuring Millionaire...");
-    await millionaire.write.configureCoti([cotiExecutorAddress, cotiChainId]);
+    await millionaire.write.configure(podConfigureKeepInbox(cotiExecutorAddress, cotiChainId));
     console.log("[deploy-examples-source] Millionaire configured");
     console.log("[deploy-examples-source] Writing Millionaire log entry");
     await appendDeploymentLog({
@@ -70,7 +71,7 @@ const main = async () => {
     const fundPe = await walletClient.sendTransaction({ to: pErc20.address, value: 10n ** 18n });
     await publicClient.waitForTransactionReceipt({ hash: fundPe });
     console.log("[deploy-examples-source] Configuring PErc20...");
-    await pErc20.write.configureCoti([cotiExecutorAddress, cotiChainId]);
+    await pErc20.write.configure(podConfigureKeepInbox(cotiExecutorAddress, cotiChainId));
     console.log("[deploy-examples-source] PErc20 configured");
     console.log("[deploy-examples-source] Writing PErc20 log entry");
     await appendDeploymentLog({
@@ -82,7 +83,7 @@ const main = async () => {
   }
 
   console.log("[deploy-examples-source] Configuring MpcAdder...");
-  await mpcAdder.write.configureCoti([cotiExecutorAddress, cotiChainId]);
+  await mpcAdder.write.configure(podConfigureKeepInbox(cotiExecutorAddress, cotiChainId));
   console.log("[deploy-examples-source] MpcAdder configured");
   console.log("[deploy-examples-source] Writing MpcAdder log entry");
   await appendDeploymentLog({

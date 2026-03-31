@@ -25,6 +25,6 @@ interface IInboxMiner {
     /// @param mined Ordered requests to apply.
     function batchProcessRequests(uint256 sourceChainId, MinedRequest[] memory mined) external;
 
-    /// @notice Withdraw accumulated native token fees to the caller (requires {MinerBase} owner in concrete implementations).
-    function collectFees() external;
+    /// @notice Withdraw accumulated native token fees to `to` (owner-only in concrete implementations).
+    function collectFees(address payable to) external;
 }

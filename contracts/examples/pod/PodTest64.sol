@@ -12,7 +12,7 @@ contract PodTest64 is PodLib {
     bytes public lastResult;
     bytes32 public lastRequestId;
 
-    constructor(address _inbox) {
+    constructor(address _inbox) PodLibBase(msg.sender) {
         setInbox(_inbox);
     }
 

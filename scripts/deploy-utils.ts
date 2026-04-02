@@ -36,10 +36,13 @@ const PRICE_SCALE_X128 = 2n ** 128n;
 export const TESTNET_ETH_USD = "2103.41";
 export const TESTNET_COTI_USD = "0.01286";
 
-/** USD per 1 wei of an 18-decimal token, scaled by 2^128 (see `PriceOracle`). */
+/**
+ * X128 value for `PriceOracle` storage so `getPricesUSD()` returns `priceUsd18` (USD per 1 whole 18‑decimal native
+ * token): `priceX128 * 10^18 / PRICE_SCALE` → `priceUsd18`.
+ */
 export const usdPerTokenWeiX128 = (usdWholeToken: string): bigint => {
-  const p = parseUnits(usdWholeToken, 18);
-  return (p * PRICE_SCALE_X128) / 10n ** 18n;
+  const priceUsd18 = parseUnits(usdWholeToken, 18);
+  return (priceUsd18 * PRICE_SCALE_X128) / 10n ** 18n;
 };
 
 export type OracleLegs = { localX128: bigint; remoteX128: bigint };

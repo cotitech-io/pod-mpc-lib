@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "postinstall": "patch-package",
     "node:chain1": "HARDHAT_CHAIN_ID=31337 hardhat node --port 8545",
     "node:chain2": "HARDHAT_CHAIN_ID=31338 hardhat node --port 8546",
     "deploy:inbox": "hardhat run scripts/deploy-inbox.ts",
@@ -11,6 +12,8 @@
     "deploy:examples:coti": "hardhat run scripts/deploy-examples-coti.ts",
     "test": "hardhat test",
     "test:executor-coti": "hardhat test test/system/mpc-executor-coti.ts",
+    "test:gt64-repro": "hardhat test test/Gt64GasRepro.ts",
+    "test:inbox-fee": "NODE_OPTIONS='--max-old-space-size=8192' hardhat test test/InboxFeeCalculation.ts",
     "test:inbox": "hardhat test test/Inbox.ts",
     "test:inbox-raise": "hardhat test test/system/inbox-raise.ts",
     "test:pod-token": "POD_TOKEN_SYSTEM_TESTS=1 hardhat test test/tokens/pod-token.ts",
@@ -26,7 +29,8 @@
     "ethers": "^6.15.0",
     "forge-std": "github:foundry-rs/forge-std#v1.9.4",
     "hardhat": "^3.1.3",
-    "solc": "^0.8.19",
+    "patch-package": "^8.0.1",
+    "solc": "^0.8.28",
     "tsx": "^4.19.2",
     "typescript": "~5.8.0",
     "viem": "^2.44.1"

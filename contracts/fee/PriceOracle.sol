@@ -100,6 +100,13 @@ contract PriceOracle is Ownable {
         return remoteTokenPriceUSDX128;
     }
 
+    /// @notice Get the local and remote token prices in USD.
+    /// @return localPrice Local token price in USD.
+    /// @return remotePrice Remote token price in USD.
+    function getPricesUSD() external view returns (uint256 localPrice, uint256 remotePrice) {
+        return (localTokenPriceUSDX128 * 10**18 / PRICE_SCALE, remoteTokenPriceUSDX128 * 10**18 / PRICE_SCALE);
+    }
+
     /// @notice Whether {fetchPrices} would update storage at this block.
     /// @return canFetch True if the time gate passes.
     function previewFetchPrices() external view returns (bool canFetch) {

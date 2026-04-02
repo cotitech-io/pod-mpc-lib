@@ -8,6 +8,13 @@ const envOrConfig = (key: string) => process.env[key] ?? configVariable(key);
 const privateKeyFor = (key: string) =>
   process.env[key] ?? process.env.PRIVATE_KEY ?? configVariable(key);
 
+/** COTI testnet: prefer dedicated key, then `_PRIVATE_KEY` (miner / alternate account in `.env`), then `PRIVATE_KEY`. */
+const privateKeyForCotiTestnet = () =>
+  process.env.COTI_TESTNET_PRIVATE_KEY?.trim() ||
+  process.env._PRIVATE_KEY?.trim() ||
+  process.env.PRIVATE_KEY?.trim() ||
+  configVariable("PRIVATE_KEY");
+
 export default defineConfig({
   plugins: [hardhatToolboxViemPlugin],
   verify: {
@@ -30,14 +37,17 @@ export default defineConfig({
     },
   },
   solidity: {
-    version: "0.8.26",
+    // Must be ≥0.8.20 for @openzeppelin/contracts@5.x (e.g. Ownable).
+    version: "0.8.28",
     path: path.resolve("node_modules/solc/soljson.js"),
     preferWasm: false,
     settings: {
       evmVersion: "paris",
+      viaIR: true,
       optimizer: {
         enabled: true,
-        runs: 200,
+        // Lower runs shrink deployment size (higher runtime gas). For Inbox ~29kB, try 1–200.
+        runs: 10,
       },
     },
   },
@@ -75,7 +85,7 @@ export default defineConfig({
       chainType: "l1",
       chainId: 7082400,
       url: envOrConfig("COTI_TESTNET_RPC_URL"),
-      accounts: [privateKeyFor("PRIVATE_KEY")],
+      accounts: [privateKeyForCotiTestnet()],
     },
     // Chain 1 for multichain message passing testing
     // Use in-process simulation to avoid external nodes in tests

@@ -15,7 +15,6 @@ import {
   requirePrivateKey,
   runCrossChainTwoWayRoundTrip,
   setupContext,
-  DEFAULT_POD_CALLBACK_FEE_WEI,
   podTwoWayWriteOptions,
   type MineRequestOptions,
   type TestContext,
@@ -165,8 +164,8 @@ export async function syncPodBalancesRoundTrip(
   mineOptions?: MineRequestOptions
 ): Promise<ReturnType<typeof runCrossChainTwoWayRoundTrip>> {
   const txHash = await ctx.podAsCoti.write.syncBalances(
-    [[...accounts], DEFAULT_POD_CALLBACK_FEE_WEI],
-    podTwoWayWriteOptions()
+    [[...accounts], ctx.base.podTwoWayFees.callbackFeeWei],
+    podTwoWayWriteOptions(ctx.base.podTwoWayFees)
   );
   await ctx.base.sepolia.publicClient.waitForTransactionReceipt({ hash: txHash, ...receiptWaitOptions });
   return runCrossChainTwoWayRoundTrip(ctx.base, label, {

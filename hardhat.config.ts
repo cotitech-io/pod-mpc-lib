@@ -38,6 +38,7 @@ export default defineConfig({
   },
   solidity: {
     // Must be ≥0.8.20 for @openzeppelin/contracts@5.x (e.g. Ownable).
+    // Keep `package.json` `solc` pinned to this exact version so `node_modules/solc/soljson.js` matches.
     version: "0.8.28",
     path: path.resolve("node_modules/solc/soljson.js"),
     preferWasm: false,

@@ -20,7 +20,6 @@ import {
   type TestContext,
   getCotiCrypto,
   collectInboxFeesAfterTest,
-  DEFAULT_POD_CALLBACK_FEE_WEI,
   podTwoWayWriteOptions,
 } from "./mpc-test-utils.js";
 import { podConfigureKeepInbox } from "../../scripts/deploy-utils.js";
@@ -130,8 +129,8 @@ describe("Millionaire (system)", async function () {
     const countBefore = await ctx.contracts.inboxSepolia.read.getRequestsLen();
     logStep(`${label}: sending reveal`);
     txHash = await millionaire.write.reveal(
-      [walletA.account.address, walletB.account.address, DEFAULT_POD_CALLBACK_FEE_WEI],
-      podTwoWayWriteOptions()
+      [walletA.account.address, walletB.account.address, ctx.podTwoWayFees.callbackFeeWei],
+      podTwoWayWriteOptions(ctx.podTwoWayFees)
     );
     await ctx.sepolia.publicClient.waitForTransactionReceipt({ hash: txHash, ...receiptWaitOptions });
     const countAfter = await ctx.contracts.inboxSepolia.read.getRequestsLen();

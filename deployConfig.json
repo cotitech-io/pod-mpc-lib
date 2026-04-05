@@ -3,16 +3,20 @@
     "1": {
       "inbox": ""
     },
+    "31337": {
+      "priceOracle": "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+    },
     "2632500": {
       "inbox": "",
       "cotiExecutor": ""
     },
     "7082400": {
-      "inbox": "0x410698612514901be70681812c48d7d3afcd3739",
+      "inbox": "0x32dd39487121ea3c90d61f79c866dd33c95e194d",
       "cotiExecutor": "0x4ac4344553822cdc7201439873d575214ee3d133"
     },
     "11155111": {
-      "inbox": "0xbccda4021ec2feb6c20d96aa5ab1ed3f70af7fb9"
+      "inbox": "0xcf3a3693e45c8505b4151864c5be76818f5672c8",
+      "priceOracle": "0xa56ea551d6abd4ff5a94677895117d286bc1f1cf"
     }
   }
 }

@@ -7,7 +7,6 @@ import {
   buildEncryptedInput128,
   collectInboxFeesAfterTest,
   decryptUint128,
-  DEFAULT_POD_CALLBACK_FEE_WEI,
   getLatestRequest,
   getResponseRequestBySource,
   logStep,
@@ -40,8 +39,8 @@ describe("MpcAdder128 (system)", async function () {
     const itB = await buildEncryptedInput128(ctx, b);
     logStep("Test1: sending add()");
     const txHash = await ctx.contracts.mpcAdderAsCoti.write.add(
-      [itA, itB, DEFAULT_POD_CALLBACK_FEE_WEI],
-      podTwoWayWriteOptions()
+      [itA, itB, ctx.podTwoWayFees.callbackFeeWei],
+      podTwoWayWriteOptions(ctx.podTwoWayFees)
     );
     logStep(`Test1: waiting for tx ${txHash}`);
     await ctx.sepolia.publicClient.waitForTransactionReceipt({
@@ -100,8 +99,8 @@ describe("MpcAdder128 (system)", async function () {
     const itB = await buildEncryptedInput128(ctx, b);
     logStep("Test2: sending add()");
     const txHash = await ctx.contracts.mpcAdderAsCoti.write.add(
-      [itA, itB, DEFAULT_POD_CALLBACK_FEE_WEI],
-      podTwoWayWriteOptions()
+      [itA, itB, ctx.podTwoWayFees.callbackFeeWei],
+      podTwoWayWriteOptions(ctx.podTwoWayFees)
     );
     logStep(`Test2: waiting for tx ${txHash}`);
     await ctx.sepolia.publicClient.waitForTransactionReceipt({
@@ -150,8 +149,8 @@ describe("MpcAdder128 (system)", async function () {
     const itB = await buildEncryptedInput128(ctx, b);
     logStep("Test3: sending add()");
     const txHash = await ctx.contracts.mpcAdderAsCoti.write.add(
-      [itA, itB, DEFAULT_POD_CALLBACK_FEE_WEI],
-      podTwoWayWriteOptions()
+      [itA, itB, ctx.podTwoWayFees.callbackFeeWei],
+      podTwoWayWriteOptions(ctx.podTwoWayFees)
     );
     await ctx.sepolia.publicClient.waitForTransactionReceipt({
       hash: txHash,
@@ -187,8 +186,8 @@ describe("MpcAdder128 (system)", async function () {
     const itB = await buildEncryptedInput128(ctx, b);
     logStep("Test4: sending add()");
     const txHash = await ctx.contracts.mpcAdderAsCoti.write.add(
-      [itA, itB, DEFAULT_POD_CALLBACK_FEE_WEI],
-      podTwoWayWriteOptions()
+      [itA, itB, ctx.podTwoWayFees.callbackFeeWei],
+      podTwoWayWriteOptions(ctx.podTwoWayFees)
     );
     await ctx.sepolia.publicClient.waitForTransactionReceipt({
       hash: txHash,

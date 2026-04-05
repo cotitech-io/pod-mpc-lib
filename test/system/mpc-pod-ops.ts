@@ -30,14 +30,10 @@ import {
   decryptUint256,
   logStep,
   collectInboxFeesAfterTest,
-  DEFAULT_POD_CALLBACK_FEE_WEI,
   runPodRoundTrip,
   setupPodTestContext,
   type PodTestContext,
 } from "./mpc-test-utils.js";
-
-/** Callback wei slice for PodTest `exec*` (matches other integration tests). */
-const CB = DEFAULT_POD_CALLBACK_FEE_WEI;
 
 /**
  * First `setupPodTestContext` run redeploys COTI `MpcExecutor` once (inbox reused) so cached bytecode
@@ -135,87 +131,87 @@ describe("Pod MPC operations (system)", async function () {
       const rows: Row[] = [
         {
           label: "add64",
-          send: () => runPodRoundTrip(ctx, "add64", (c, o) => c.write.execAdd64([itA, itB, CB], o)),
+          send: () => runPodRoundTrip(ctx, "add64", (c, o) => c.write.execAdd64([itA, itB, ctx.podTwoWayFees.callbackFeeWei], o)),
           check: (raw) => assert.equal(decryptU64Payload(raw, ctx.crypto.userKey), a + b),
         },
         {
           label: "sub64",
-          send: () => runPodRoundTrip(ctx, "sub64", (c, o) => c.write.execSub64([itB, itA, CB], o)),
+          send: () => runPodRoundTrip(ctx, "sub64", (c, o) => c.write.execSub64([itB, itA, ctx.podTwoWayFees.callbackFeeWei], o)),
           check: (raw) => assert.equal(decryptU64Payload(raw, ctx.crypto.userKey), b - a),
         },
         {
           label: "mul64",
-          send: () => runPodRoundTrip(ctx, "mul64", (c, o) => c.write.execMul64([itA, itB, CB], o)),
+          send: () => runPodRoundTrip(ctx, "mul64", (c, o) => c.write.execMul64([itA, itB, ctx.podTwoWayFees.callbackFeeWei], o)),
           check: (raw) => assert.equal(decryptU64Payload(raw, ctx.crypto.userKey), a * b),
         },
         {
           label: "div64",
-          send: () => runPodRoundTrip(ctx, "div64", (c, o) => c.write.execDiv64([itB, itA, CB], o)),
+          send: () => runPodRoundTrip(ctx, "div64", (c, o) => c.write.execDiv64([itB, itA, ctx.podTwoWayFees.callbackFeeWei], o)),
           check: (raw) => assert.equal(decryptU64Payload(raw, ctx.crypto.userKey), b / a),
         },
         {
           label: "rem64",
-          send: () => runPodRoundTrip(ctx, "rem64", (c, o) => c.write.execRem64([itB, itA, CB], o)),
+          send: () => runPodRoundTrip(ctx, "rem64", (c, o) => c.write.execRem64([itB, itA, ctx.podTwoWayFees.callbackFeeWei], o)),
           check: (raw) => assert.equal(decryptU64Payload(raw, ctx.crypto.userKey), b % a),
         },
         {
           label: "and64",
-          send: () => runPodRoundTrip(ctx, "and64", (c, o) => c.write.execAnd64([itA, itB, CB], o)),
+          send: () => runPodRoundTrip(ctx, "and64", (c, o) => c.write.execAnd64([itA, itB, ctx.podTwoWayFees.callbackFeeWei], o)),
           check: (raw) => assert.equal(decryptU64Payload(raw, ctx.crypto.userKey), a & b),
         },
         {
           label: "or64",
-          send: () => runPodRoundTrip(ctx, "or64", (c, o) => c.write.execOr64([itA, itB, CB], o)),
+          send: () => runPodRoundTrip(ctx, "or64", (c, o) => c.write.execOr64([itA, itB, ctx.podTwoWayFees.callbackFeeWei], o)),
           check: (raw) => assert.equal(decryptU64Payload(raw, ctx.crypto.userKey), a | b),
         },
         {
           label: "xor64",
-          send: () => runPodRoundTrip(ctx, "xor64", (c, o) => c.write.execXor64([itA, itB, CB], o)),
+          send: () => runPodRoundTrip(ctx, "xor64", (c, o) => c.write.execXor64([itA, itB, ctx.podTwoWayFees.callbackFeeWei], o)),
           check: (raw) => assert.equal(decryptU64Payload(raw, ctx.crypto.userKey), a ^ b),
         },
         {
           label: "min64",
-          send: () => runPodRoundTrip(ctx, "min64", (c, o) => c.write.execMin64([itA, itB, CB], o)),
+          send: () => runPodRoundTrip(ctx, "min64", (c, o) => c.write.execMin64([itA, itB, ctx.podTwoWayFees.callbackFeeWei], o)),
           check: (raw) => assert.equal(decryptU64Payload(raw, ctx.crypto.userKey), a < b ? a : b),
         },
         {
           label: "max64",
-          send: () => runPodRoundTrip(ctx, "max64", (c, o) => c.write.execMax64([itA, itB, CB], o)),
+          send: () => runPodRoundTrip(ctx, "max64", (c, o) => c.write.execMax64([itA, itB, ctx.podTwoWayFees.callbackFeeWei], o)),
           check: (raw) => assert.equal(decryptU64Payload(raw, ctx.crypto.userKey), a > b ? a : b),
         },
         {
           label: "gt64",
-          send: () => runPodRoundTrip(ctx, "gt64", (c, o) => c.write.execGt64([itB, itA, CB], o)),
+          send: () => runPodRoundTrip(ctx, "gt64", (c, o) => c.write.execGt64([itB, itA, ctx.podTwoWayFees.callbackFeeWei], o)),
           check: (raw) => assert.equal(decryptU64Payload(raw, ctx.crypto.userKey), 1n),
         },
         {
           label: "eq64",
-          send: () => runPodRoundTrip(ctx, "eq64", (c, o) => c.write.execEq64([itA, itEq, CB], o)),
+          send: () => runPodRoundTrip(ctx, "eq64", (c, o) => c.write.execEq64([itA, itEq, ctx.podTwoWayFees.callbackFeeWei], o)),
           check: (raw) => assert.equal(decryptU64Payload(raw, ctx.crypto.userKey), 0n),
         },
         {
           label: "mux64_1",
-          send: () => runPodRoundTrip(ctx, "mux64_1", (c, o) => c.write.execMux64([itOne, itA, itB, CB], o)),
+          send: () => runPodRoundTrip(ctx, "mux64_1", (c, o) => c.write.execMux64([itOne, itA, itB, ctx.podTwoWayFees.callbackFeeWei], o)),
           check: (raw) => assert.equal(decryptU64Payload(raw, ctx.crypto.userKey), a),
         },
         {
           label: "mux64_0",
-          send: () => runPodRoundTrip(ctx, "mux64_0", (c, o) => c.write.execMux64([itZero, itA, itB, CB], o)),
+          send: () => runPodRoundTrip(ctx, "mux64_0", (c, o) => c.write.execMux64([itZero, itA, itB, ctx.podTwoWayFees.callbackFeeWei], o)),
           check: (raw) => assert.equal(decryptU64Payload(raw, ctx.crypto.userKey), b),
         },
         {
           label: "shl64",
-          send: () => runPodRoundTrip(ctx, "shl64", (c, o) => c.write.execShl64([itA, 2, CB], o)),
+          send: () => runPodRoundTrip(ctx, "shl64", (c, o) => c.write.execShl64([itA, 2, ctx.podTwoWayFees.callbackFeeWei], o)),
           check: (raw) => assert.equal(decryptU64Payload(raw, ctx.crypto.userKey), a << 2n),
         },
         {
           label: "shr64",
-          send: () => runPodRoundTrip(ctx, "shr64", (c, o) => c.write.execShr64([itB, 2, CB], o)),
+          send: () => runPodRoundTrip(ctx, "shr64", (c, o) => c.write.execShr64([itB, 2, ctx.podTwoWayFees.callbackFeeWei], o)),
           check: (raw) => assert.equal(decryptU64Payload(raw, ctx.crypto.userKey), b >> 2n),
         },
         {
           label: "randBoundedBits64",
-          send: () => runPodRoundTrip(ctx, "randBounded", (c, o) => c.write.execRandBoundedBits64([5, CB], o)),
+          send: () => runPodRoundTrip(ctx, "randBounded", (c, o) => c.write.execRandBoundedBits64([5, ctx.podTwoWayFees.callbackFeeWei], o)),
           check: (raw) => {
             const v = decodePodPlainUint256(raw);
             assert.ok(v < 32n);
@@ -231,7 +227,7 @@ describe("Pod MPC operations (system)", async function () {
 
       if (podOpsRowEnabled("rand64")) {
         logStep("PodTest64: rand64 (plaintext uint256 payload)");
-        const randRaw = await runPodRoundTrip(ctx, "rand64", (c, o) => c.write.execRand64([CB], o));
+        const randRaw = await runPodRoundTrip(ctx, "rand64", (c, o) => c.write.execRand64([ctx.podTwoWayFees.callbackFeeWei], o));
         const rv = decodePodPlainUint256(randRaw);
         assert.ok(rv >= 0n && rv < 1n << 64n);
       }
@@ -276,37 +272,37 @@ describe("Pod MPC operations (system)", async function () {
       }> = [
         {
           label: "add128",
-          send: () => runPodRoundTrip(ctx, "add128", (c, o) => c.write.execAdd128([itA, itB, CB], o)),
+          send: () => runPodRoundTrip(ctx, "add128", (c, o) => c.write.execAdd128([itA, itB, ctx.podTwoWayFees.callbackFeeWei], o)),
           check: (raw) => assert.equal(decryptU128Payload(raw, ctx.crypto.userKey), a + b),
         },
         {
           label: "sub128",
-          send: () => runPodRoundTrip(ctx, "sub128", (c, o) => c.write.execSub128([itB, itA, CB], o)),
+          send: () => runPodRoundTrip(ctx, "sub128", (c, o) => c.write.execSub128([itB, itA, ctx.podTwoWayFees.callbackFeeWei], o)),
           check: (raw) => assert.equal(decryptU128Payload(raw, ctx.crypto.userKey), b - a),
         },
         {
           label: "mul128",
-          send: () => runPodRoundTrip(ctx, "mul128", (c, o) => c.write.execMul128([itMulA, itMulB, CB], o)),
+          send: () => runPodRoundTrip(ctx, "mul128", (c, o) => c.write.execMul128([itMulA, itMulB, ctx.podTwoWayFees.callbackFeeWei], o)),
           check: (raw) => assert.equal(decryptU128Payload(raw, ctx.crypto.userKey), mulA * mulB),
         },
         {
           label: "gt128",
-          send: () => runPodRoundTrip(ctx, "gt128", (c, o) => c.write.execGt128([itB, itA, CB], o)),
+          send: () => runPodRoundTrip(ctx, "gt128", (c, o) => c.write.execGt128([itB, itA, ctx.podTwoWayFees.callbackFeeWei], o)),
           check: (raw) => assert.equal(decryptU64Payload(raw, ctx.crypto.userKey), 1n),
         },
         {
           label: "mux128",
-          send: () => runPodRoundTrip(ctx, "mux128", (c, o) => c.write.execMux128([itOne, itA, itB, CB], o)),
+          send: () => runPodRoundTrip(ctx, "mux128", (c, o) => c.write.execMux128([itOne, itA, itB, ctx.podTwoWayFees.callbackFeeWei], o)),
           check: (raw) => assert.equal(decryptU128Payload(raw, ctx.crypto.userKey), a),
         },
         {
           label: "mux128b",
-          send: () => runPodRoundTrip(ctx, "mux128b", (c, o) => c.write.execMux128([itZero, itA, itB, CB], o)),
+          send: () => runPodRoundTrip(ctx, "mux128b", (c, o) => c.write.execMux128([itZero, itA, itB, ctx.podTwoWayFees.callbackFeeWei], o)),
           check: (raw) => assert.equal(decryptU128Payload(raw, ctx.crypto.userKey), b),
         },
         {
           label: "shl128",
-          send: () => runPodRoundTrip(ctx, "shl128", (c, o) => c.write.execShl128([itA, 3, CB], o)),
+          send: () => runPodRoundTrip(ctx, "shl128", (c, o) => c.write.execShl128([itA, 3, ctx.podTwoWayFees.callbackFeeWei], o)),
           check: (raw) => assert.equal(decryptU128Payload(raw, ctx.crypto.userKey), a << 3n),
         },
       ];
@@ -324,7 +320,7 @@ describe("Pod MPC operations (system)", async function () {
 
       if (podOpsRowEnabled("rand128")) {
         logStep("PodTest128: rand128 (plaintext)");
-        const rraw = await runPodRoundTrip(ctx, "rand128", (c, o) => c.write.execRand128([CB], o));
+        const rraw = await runPodRoundTrip(ctx, "rand128", (c, o) => c.write.execRand128([ctx.podTwoWayFees.callbackFeeWei], o));
         const rv = decodePodPlainUint256(rraw);
         assert.ok(rv >= 0n && rv < 1n << 128n);
       }
@@ -342,7 +338,7 @@ describe("Pod MPC operations (system)", async function () {
      */
     podOpsIsolatedIt("PodTest128", "randBoundedBits128 (isolated)", async function () {
       logStep("PodTest128: randBoundedBits128 (isolated)");
-      const raw = await runPodRoundTrip(ctx, "rb128", (c, o) => c.write.execRandBoundedBits128([9, CB], o));
+      const raw = await runPodRoundTrip(ctx, "rb128", (c, o) => c.write.execRandBoundedBits128([9, ctx.podTwoWayFees.callbackFeeWei], o));
       const v = decodePodPlainUint256(raw);
       assert.ok(v < 512n);
     });
@@ -385,27 +381,27 @@ describe("Pod MPC operations (system)", async function () {
       }> = [
         {
           label: "add256",
-          send: () => runPodRoundTrip(ctx, "add256", (c, o) => c.write.execAdd256([itA, itB, CB], o)),
+          send: () => runPodRoundTrip(ctx, "add256", (c, o) => c.write.execAdd256([itA, itB, ctx.podTwoWayFees.callbackFeeWei], o)),
           check: (raw) => assert.equal(decryptU256Payload(raw, ctx.crypto.userKey), a + b),
         },
         {
           label: "sub256",
-          send: () => runPodRoundTrip(ctx, "sub256", (c, o) => c.write.execSub256([itA, itB, CB], o)),
+          send: () => runPodRoundTrip(ctx, "sub256", (c, o) => c.write.execSub256([itA, itB, ctx.podTwoWayFees.callbackFeeWei], o)),
           check: (raw) => assert.equal(decryptU256Payload(raw, ctx.crypto.userKey), a - b),
         },
         {
           label: "mul256",
-          send: () => runPodRoundTrip(ctx, "mul256", (c, o) => c.write.execMul256([itMulA, itMulB, CB], o)),
+          send: () => runPodRoundTrip(ctx, "mul256", (c, o) => c.write.execMul256([itMulA, itMulB, ctx.podTwoWayFees.callbackFeeWei], o)),
           check: (raw) => assert.equal(decryptU256Payload(raw, ctx.crypto.userKey), mulA * mulB),
         },
         {
           label: "gt256",
-          send: () => runPodRoundTrip(ctx, "gt256", (c, o) => c.write.execGt256([itA, itB, CB], o)),
+          send: () => runPodRoundTrip(ctx, "gt256", (c, o) => c.write.execGt256([itA, itB, ctx.podTwoWayFees.callbackFeeWei], o)),
           check: (raw) => assert.equal(decryptU64Payload(raw, ctx.crypto.userKey), 1n),
         },
         {
           label: "mux256",
-          send: () => runPodRoundTrip(ctx, "mux256", (c, o) => c.write.execMux256([itOne, itA, itB, CB], o)),
+          send: () => runPodRoundTrip(ctx, "mux256", (c, o) => c.write.execMux256([itOne, itA, itB, ctx.podTwoWayFees.callbackFeeWei], o)),
           check: (raw) => assert.equal(decryptU256Payload(raw, ctx.crypto.userKey), a),
         },
       ];
@@ -423,7 +419,7 @@ describe("Pod MPC operations (system)", async function () {
 
       if (podOpsRowEnabled("rand256")) {
         logStep("PodTest256: rand256 (plaintext)");
-        const rraw = await runPodRoundTrip(ctx, "rand256", (c, o) => c.write.execRand256([CB], o));
+        const rraw = await runPodRoundTrip(ctx, "rand256", (c, o) => c.write.execRand256([ctx.podTwoWayFees.callbackFeeWei], o));
         const rv = decodePodPlainUint256(rraw);
         assert.ok(rv >= 0n);
       }
@@ -432,7 +428,7 @@ describe("Pod MPC operations (system)", async function () {
     /** See `PodTest128` isolated `randBoundedBits128` comment for the same failure mode. */
     podOpsIsolatedIt("PodTest256", "randBoundedBits256 (isolated)", async function () {
       logStep("PodTest256: randBoundedBits256 (isolated)");
-      const raw = await runPodRoundTrip(ctx, "rb256", (c, o) => c.write.execRandBoundedBits256([10, CB], o));
+      const raw = await runPodRoundTrip(ctx, "rb256", (c, o) => c.write.execRandBoundedBits256([10, ctx.podTwoWayFees.callbackFeeWei], o));
       const v = decodePodPlainUint256(raw);
       assert.ok(v < 1024n);
     });

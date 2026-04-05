@@ -1,11 +1,31 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { decodeAbiParameters, defineChain, toFunctionSelector, toHex } from "viem";
-import { podConfigureKeepInbox } from "../../scripts/deploy-utils.js";
+import { decodeAbiParameters, defineChain, toFunctionSelector, toHex, zeroAddress } from "viem";
+import {
+  deployTestnetPriceOracle,
+  podConfigureKeepInbox,
+  resolveDeployerAddress,
+  waitMined,
+} from "../../scripts/deploy-utils.js";
 import { privateKeyToAccount } from "viem/accounts";
 import { ONBOARD_CONTRACT_ADDRESS, Wallet as CotiWallet } from "@coti-io/coti-ethers";
 import { JsonRpcProvider } from "ethers";
+
+/**
+ * Native `msg.value` split for two-way Pod / inbox calls (from `inbox.calculateTwoWayFeeRequiredInLocalToken`).
+ *
+ * **Not comparable to `Request.targetFee` / `Request.callerFee` on-chain** — those are **gas unit** budgets, not wei
+ * (`InboxFeeManager.validateAndPrepareTwoWayFees`):
+ * - **`callerFee`** ≈ `callbackFeeWei / tx.gasprice` (uses the **tx** gas price, often ≫ `DEFAULT_GAS_PRICE`).
+ * - **`targetFee`** = `(totalWei - callbackWei) * getLocalTokenPriceUSDX128 / getRemoteTokenPriceUSDX128 / gasPrice`.
+ *   With local ≈ ETH and remote ≈ COTI, `local/remote` is huge, so the **remote** leg’s stipend is a **large** gas number
+ *   even when the **local wei** slice `(total - callback)` is tiny — each remote gas unit is cheap in USD vs ETH.
+ */
+export type PodTwoWayFeeEstimate = {
+  totalValueWei: bigint;
+  callbackFeeWei: bigint;
+};
 
 export type TestContext = {
   sepolia: {
@@ -31,6 +51,8 @@ export type TestContext = {
     sepolia: number;
     coti: bigint;
   };
+  /** Two-way native fee wei from {@link estimateGas} on the Hardhat inbox (after oracle + min-fee configs). */
+  podTwoWayFees: PodTwoWayFeeEstimate;
 };
 
 /** Minimum context for `encryptValue` against the COTI inbox (shared by TestContext and PodTestContext). */
@@ -112,10 +134,25 @@ export const fundContractForInboxFees = async (
   await publicClient.waitForTransactionReceipt({ hash, ...receiptWaitOptions });
 };
 
-/** Default `msg.value` for two-way Pod / inbox calls (`totalValueWei`); split with `callbackFeeLocalWei` in the function args. */
-export const DEFAULT_POD_TWO_WAY_VALUE_WEI = 10n ** 17n;
-/** Default callback wei slice for two-way Pod calls (must be `<` total and satisfy {InboxFeeManager} min gas units). */
-export const DEFAULT_POD_CALLBACK_FEE_WEI = 5n * 10n ** 16n;
+/**
+ * Local leg min-fee template (aligned with `test/InboxFeeCalculation.ts` LOCAL_TEMPLATE).
+ * Remote leg uses a constant minimum gas-units floor (aligned with `REMOTE_MIN_GAS_UNITS` there) so the remote branch
+ * in `calculateTwoWayFeeRequired` matches validation (`expectedMinFee` with constant remote config).
+ */
+const MPC_SYSTEM_INBOX_LOCAL_MIN_FEE = {
+  constantFee: 0n,
+  gasPerByte: 10n,
+  callbackExecutionGas: 100_000n,
+  errorLength: 300n,
+  bufferRatioX10000: 100n,
+};
+const MPC_SYSTEM_INBOX_REMOTE_MIN_FEE = {
+  constantFee: 18_000_000n,
+  gasPerByte: 0n,
+  callbackExecutionGas: 0n,
+  errorLength: 0n,
+  bufferRatioX10000: 0n,
+};
 
 /**
  * {InboxMiner} uses `Request.targetFee` as the subcall gas budget (`target.call{gas: targetFee}(...)`).
@@ -127,6 +164,77 @@ export const DEFAULT_POD_CALLBACK_FEE_WEI = 5n * 10n ** 16n;
  * above `targetFee` or the subcall silently OOGs while `batchProcessRequests` still succeeds and records `errors`.
  */
 export const DEFAULT_MINED_TARGET_EXECUTION_GAS = 2_500_000n;
+
+/** Same as `InboxFeeManager.DEFAULT_GAS_PRICE` — wei per gas passed to `calculateTwoWayFeeRequiredInLocalToken` in setup. */
+const MPC_FEE_CALC_ASSUMED_GAS_PRICE_WEI = 300529002;
+/** Calldata size terms for the two-way fee helper (reasonable MPC payload headroom vs. `test/InboxFeeCalculation.ts`). */
+const MPC_FEE_CALC_CALL_SIZE = 512n;
+/** Extra execution gas terms for `calculateTwoWayFeeRequired` — 0 so estimates match `validateAndPrepareTwoWayFees` minima (template already includes `callbackExecutionGas`). */
+const MPC_FEE_CALC_REMOTE_EXEC_GAS = 300000n;
+const MPC_FEE_CALC_CALLBACK_EXEC_GAS = 300000n;
+
+const padPodFeeWei = (x: bigint) => x + x / 20n + 1n;
+
+/**
+ * Two-way **native wei** for `msg.value` / callback args (not `eth_estimateGas`). Wraps
+ * `calculateTwoWayFeeRequiredInLocalToken` with the current oracle + min-fee configs.
+ *
+ * On-chain, the inbox stores **gas units** in `Request.targetFee` / `callerFee`; see {@link PodTwoWayFeeEstimate}.
+ */
+export async function estimateGas(inbox: any): Promise<PodTwoWayFeeEstimate> {
+  const [targetWei, callerWei] = await inbox.read.calculateTwoWayFeeRequiredInLocalToken([
+    MPC_FEE_CALC_CALL_SIZE,
+    MPC_FEE_CALC_CALL_SIZE,
+    MPC_FEE_CALC_REMOTE_EXEC_GAS,
+    MPC_FEE_CALC_CALLBACK_EXEC_GAS,
+    MPC_FEE_CALC_ASSUMED_GAS_PRICE_WEI,
+  ]);
+  return {
+    callbackFeeWei: padPodFeeWei(callerWei),
+    totalValueWei: padPodFeeWei(targetWei + callerWei),
+  };
+}
+
+/**
+ * Deploys a {@link PriceOracle} with ETH/COTI legs ({@link oracleLegsForChain}) when missing, wires it to `inbox`,
+ * and applies min-fee configs above. Call {@link estimateGas} on the Hardhat inbox after setup for `podTwoWayFees`. No-op
+ * if `inbox` owner ≠ `walletClient` account (e.g. reused deployment from another key).
+ */
+export async function ensureMpcInboxOracleAndFees(params: {
+  label: string;
+  viem: any;
+  publicClient: any;
+  walletClient: any;
+  chainId: number;
+  inbox: any;
+}): Promise<void> {
+  const { label, viem, publicClient, walletClient, chainId, inbox } = params;
+  const deployer = await resolveDeployerAddress(walletClient);
+  const owner = (await inbox.read.owner()) as `0x${string}`;
+  if (owner.toLowerCase() !== deployer.toLowerCase()) {
+    logStep(`${label}: skip oracle/fee setup (inbox owner ${owner} != wallet ${deployer})`);
+    return;
+  }
+
+  const currentOracle = (await inbox.read.priceOracle()) as `0x${string}`;
+  if (currentOracle === zeroAddress) {
+    logStep(`${label}: deploying PriceOracle (chainId=${chainId})`);
+    const oracle = await deployTestnetPriceOracle({ viem, publicClient, walletClient, chainId });
+    const setOracleHash = await inbox.write.setPriceOracle([oracle.address], { account: deployer });
+    await waitMined(publicClient, setOracleHash);
+    const [localUsd, remoteUsd] = await oracle.read.getPricesUSD();
+    logStep(`${label}: PriceOracle ${oracle.address} getPricesUSD local=${localUsd} remote=${remoteUsd}`);
+  } else {
+    logStep(`${label}: PriceOracle already set: ${currentOracle}`);
+  }
+
+  const feeHash = await inbox.write.updateMinFeeConfigs(
+    [MPC_SYSTEM_INBOX_LOCAL_MIN_FEE, MPC_SYSTEM_INBOX_REMOTE_MIN_FEE],
+    { account: deployer }
+  );
+  await waitMined(publicClient, feeHash);
+  logStep(`${label}: updateMinFeeConfigs applied`);
+}
 
 /** Extra gas on the `batchProcessRequests` tx so the inbox can forward `targetFee` to the subcall (EIP-150). */
 const MIN_BATCH_TX_GAS_HEADROOM = 4_000_000n;
@@ -196,9 +304,9 @@ async function applyCotiBatchTxFeePerGasCap(
 /** Hardhat EDR caps a single transaction at 2^24 gas; higher limits are rejected before broadcast. */
 export const HARDHAT_EDR_TX_GAS_CAP = 16_777_216n;
 
-/** viem `writeContract` options attaching the default two-way native payment. */
-export function podTwoWayWriteOptions(): { value: bigint } {
-  return { value: DEFAULT_POD_TWO_WAY_VALUE_WEI };
+/** viem `writeContract` options attaching the two-way native payment from {@link estimateGas}. */
+export function podTwoWayWriteOptions(fees: PodTwoWayFeeEstimate): { value: bigint } {
+  return { value: fees.totalValueWei };
 }
 
 /** Minimum context for sweeping native fees from both inbox deployments. */
@@ -976,6 +1084,25 @@ export const setupContext = async (params: {
   }
   logStep(`COTI inbox address in use: ${inboxCoti.address}`);
 
+  await ensureMpcInboxOracleAndFees({
+    label: "Hardhat inbox",
+    viem: params.sepoliaViem,
+    publicClient: sepoliaPublicClient,
+    walletClient: sepoliaWallet,
+    chainId: sepoliaChainId,
+    inbox: inboxSepolia,
+  });
+  await ensureMpcInboxOracleAndFees({
+    label: "COTI inbox",
+    viem: params.cotiViem,
+    publicClient: cotiPublicClient,
+    walletClient: cotiWallet,
+    chainId: Number(cotiChainId),
+    inbox: inboxCoti,
+  });
+
+  const podTwoWayFees = await estimateGas(inboxSepolia);
+
   if (!reuseSepolia || !reuseCoti) {
     logStep("Configuring COTI executor + miner");
     await mpcAdder.write.configure(podConfigureKeepInbox(mpcExecutor.address, cotiChainId));
@@ -1022,6 +1149,7 @@ export const setupContext = async (params: {
     contracts: { inboxSepolia, inboxCoti, mpcAdder, mpcAdderAsCoti, mpcExecutor },
     crypto: { userKey, cotiEncryptWallet },
     chainIds: { sepolia: sepoliaChainId, coti: cotiChainId },
+    podTwoWayFees,
   };
 };
 
@@ -1035,6 +1163,7 @@ export type TestContextWideMpc = {
   };
   crypto: TestContext["crypto"];
   chainIds: TestContext["chainIds"];
+  podTwoWayFees: PodTwoWayFeeEstimate;
 };
 
 /** Configuration for {@link setupContextWideMpc} (128 vs 256 adder + deployments file + env keys). */
@@ -1178,6 +1307,25 @@ export const setupContextWideMpc = async (
   }
   logStep(`COTI inbox address in use: ${inboxCoti.address}`);
 
+  await ensureMpcInboxOracleAndFees({
+    label: "Hardhat inbox",
+    viem: params.sepoliaViem,
+    publicClient: sepoliaPublicClient,
+    walletClient: sepoliaWallet,
+    chainId: sepoliaChainId,
+    inbox: inboxSepolia,
+  });
+  await ensureMpcInboxOracleAndFees({
+    label: "COTI inbox",
+    viem: params.cotiViem,
+    publicClient: cotiPublicClient,
+    walletClient: cotiWallet,
+    chainId: Number(cotiChainId),
+    inbox: inboxCoti,
+  });
+
+  const podTwoWayFees = await estimateGas(inboxSepolia);
+
   if (!reuseSepolia || !reuseCoti) {
     logStep("Configuring COTI executor + miner");
     await mpcAdder.write.configure(podConfigureKeepInbox(mpcExecutor.address, cotiChainId));
@@ -1230,6 +1378,7 @@ export const setupContextWideMpc = async (
     },
     crypto: { userKey, cotiEncryptWallet },
     chainIds: { sepolia: sepoliaChainId, coti: cotiChainId },
+    podTwoWayFees,
   };
 };
 
@@ -1296,6 +1445,7 @@ export type PodTestContext = {
   crypto: TestContext["crypto"];
   chainIds: TestContext["chainIds"];
   podContractName: PodTestContractName;
+  podTwoWayFees: PodTwoWayFeeEstimate;
 };
 
 /**
@@ -1451,6 +1601,25 @@ export const setupPodTestContext = async (params: {
   }
   logStep(`COTI inbox address in use: ${inboxCoti.address}`);
 
+  await ensureMpcInboxOracleAndFees({
+    label: "Hardhat inbox (pod test)",
+    viem: params.sepoliaViem,
+    publicClient: sepoliaPublicClient,
+    walletClient: sepoliaWallet,
+    chainId: sepoliaChainId,
+    inbox: inboxSepolia,
+  });
+  await ensureMpcInboxOracleAndFees({
+    label: "COTI inbox (pod test)",
+    viem: params.cotiViem,
+    publicClient: cotiPublicClient,
+    walletClient: cotiWallet,
+    chainId: Number(cotiChainId),
+    inbox: inboxCoti,
+  });
+
+  const podTwoWayFees = await estimateGas(inboxSepolia);
+
   if (!reuseSepolia || !reuseCotiFull) {
     logStep("Configuring COTI executor + miner (pod test)");
     await podTest.write.configure(podConfigureKeepInbox(mpcExecutor.address, cotiChainId));
@@ -1504,6 +1673,7 @@ export const setupPodTestContext = async (params: {
     crypto: { userKey, cotiEncryptWallet },
     chainIds: { sepolia: sepoliaChainId, coti: cotiChainId },
     podContractName: params.podContractName,
+    podTwoWayFees,
   };
 };
 
@@ -1549,7 +1719,7 @@ export const runPodRoundTrip = async (
       ? HARDHAT_EDR_TX_GAS_CAP
       : hardhatWriteGasRaw;
   const gasOpts = hardhatWriteGas !== undefined ? { gas: hardhatWriteGas } : {};
-  const writeOpts = { ...podTwoWayWriteOptions(), ...gasOpts };
+  const writeOpts = { ...podTwoWayWriteOptions(ctx.podTwoWayFees), ...gasOpts };
   const txHash = await send(ctx.contracts.podTestAsCoti, writeOpts);
   await ctx.sepolia.publicClient.waitForTransactionReceipt({ hash: txHash, ...receiptWaitOptions });
   const request = await getLatestRequest(ctx.contracts.inboxSepolia);

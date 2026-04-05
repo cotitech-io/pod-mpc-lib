@@ -4,12 +4,11 @@ pragma solidity ^0.8.19;
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 /// @title PriceOracle
-/// @notice Base oracle: cached X128 USD-stable prices per wei, optional pull interval, and admin overrides.
-/// @dev Subclasses override {fetchLocalTokenPriceUSDX128} / {fetchRemoteTokenPriceUSDX128} to refresh from feeds.
+/// @notice Base oracle: cached 18-decimal USD-stable prices per wei, optional pull interval, and admin overrides.
+/// @dev Subclasses override {fetchLocalTokenPriceUSD} / {fetchRemoteTokenPriceUSD} to refresh from feeds.
 contract PriceOracle is Ownable {
-    /// @notice Fixed-point scale `2^128` for prices in {localTokenPriceUSDX128} and {remoteTokenPriceUSDX128}.
-    /// @dev Quote per 1 wei of base token, in USD-stable units, scaled by this factor.
-    uint256 public constant PRICE_SCALE = 1 << 128;
+    /// @notice Price is stored with 18 decimals of precision
+    uint256 public constant PRICE_SCALE = 10 ** 18;
 
     /// @notice Minimum seconds between successful pulls in {fetchPrices}. Zero disables the time gate.
     uint256 public fetchInterval;
@@ -20,11 +19,11 @@ contract PriceOracle is Ownable {
     /// @notice Timestamp of the last successful pull or admin set.
     uint256 public lastFetchTimestamp;
 
-    /// @notice Cached local execution token price (X128).
-    uint256 public localTokenPriceUSDX128;
+    /// @notice Cached local execution token price.
+    uint256 public localTokenPriceUSD;
 
-    /// @notice Cached remote execution token price (X128).
-    uint256 public remoteTokenPriceUSDX128;
+    /// @notice Cached remote execution token price.
+    uint256 public remoteTokenPriceUSD;
 
     /// @notice Address allowed to set prices directly (in addition to {fetchPrices}).
     address public priceAdmin;
@@ -45,15 +44,15 @@ contract PriceOracle is Ownable {
     }
 
     /// @notice Refresh cached prices when the time gate allows.
-    /// @dev Interval checks are cheap storage reads only. Inbox fee paths use {getLocalTokenPriceUSDX128}/{getRemoteTokenPriceUSDX128} only (no pull). Use {previewFetchPrices} with `estimateGas` when budgeting `fetchPrices`.
+    /// @dev Interval checks are cheap storage reads only. Inbox fee paths use {getLocalTokenPriceUSD}/{getRemoteTokenPriceUSD} only (no pull). Use {previewFetchPrices} with `estimateGas` when budgeting `fetchPrices`.
     function fetchPrices() external {
         if (!_fetchIntervalsElapsed()) {
             return;
         }
 
         lastFetchTimestamp = block.timestamp;
-        localTokenPriceUSDX128 = fetchLocalTokenPriceUSDX128();
-        remoteTokenPriceUSDX128 = fetchRemoteTokenPriceUSDX128();
+        localTokenPriceUSD = fetchLocalTokenPriceUSD();
+        remoteTokenPriceUSD = fetchRemoteTokenPriceUSD();
     }
 
     /// @notice Minimum seconds between pulls.
@@ -68,43 +67,43 @@ contract PriceOracle is Ownable {
         fetchBlockInterval = blocksBetweenFetches;
     }
 
-    /// @notice Set the address allowed to call {setLocalTokenPriceUSDX128} / {setRemoteTokenPriceUSDX128}.
+    /// @notice Set the address allowed to call {setLocalTokenPriceUSD} / {setRemoteTokenPriceUSD}.
     /// @param admin Price admin address.
     function setPriceAdmin(address admin) external onlyOwner {
         priceAdmin = admin;
     }
 
     /// @notice Manually set the local token price (also updates {lastFetchTimestamp}).
-    /// @param price X128-scaled price.
-    function setLocalTokenPriceUSDX128(uint256 price) external onlyPriceAdmin {
-        localTokenPriceUSDX128 = price;
+    /// @param price with 18 decimals of precision
+    function setLocalTokenPriceUSD(uint256 price) external onlyPriceAdmin {
+        localTokenPriceUSD = price;
         lastFetchTimestamp = block.timestamp;
     }
 
     /// @notice Manually set the remote token price (also updates {lastFetchTimestamp}).
-    /// @param price X128-scaled price.
-    function setRemoteTokenPriceUSDX128(uint256 price) external onlyPriceAdmin {
-        remoteTokenPriceUSDX128 = price;
+    /// @param price with 18 decimals of precision
+    function setRemoteTokenPriceUSD(uint256 price) external onlyPriceAdmin {
+        remoteTokenPriceUSD = price;
         lastFetchTimestamp = block.timestamp;
     }
 
     /// @notice Cached local token price (read-only for fee logic).
-    /// @return price X128-scaled price.
-    function getLocalTokenPriceUSDX128() external view returns (uint256 price) {
-        return localTokenPriceUSDX128;
+    /// @return price with 18 decimals of precision
+    function getLocalTokenPriceUSD() external view returns (uint256 price) {
+        return localTokenPriceUSD;
     }
 
     /// @notice Cached remote token price (read-only for fee logic).
-    /// @return price X128-scaled price.
-    function getRemoteTokenPriceUSDX128() external view returns (uint256 price) {
-        return remoteTokenPriceUSDX128;
+    /// @return price with 18 decimals of precision
+    function getRemoteTokenPriceUSD() external view returns (uint256 price) {
+        return remoteTokenPriceUSD;
     }
 
     /// @notice Get the local and remote token prices in USD.
     /// @return localPrice Local token price in USD.
     /// @return remotePrice Remote token price in USD.
     function getPricesUSD() external view returns (uint256 localPrice, uint256 remotePrice) {
-        return (localTokenPriceUSDX128 * 10**18 / PRICE_SCALE, remoteTokenPriceUSDX128 * 10**18 / PRICE_SCALE);
+        return (localTokenPriceUSD, remoteTokenPriceUSD);
     }
 
     /// @notice Whether {fetchPrices} would update storage at this block.
@@ -122,12 +121,12 @@ contract PriceOracle is Ownable {
     }
 
     /// @dev Override to pull local token price; default returns the cache.
-    function fetchLocalTokenPriceUSDX128() internal view virtual returns (uint256) {
-        return localTokenPriceUSDX128;
+    function fetchLocalTokenPriceUSD() internal view virtual returns (uint256) {
+        return localTokenPriceUSD;
     }
 
     /// @dev Override to pull remote token price; default returns the cache.
-    function fetchRemoteTokenPriceUSDX128() internal view virtual returns (uint256) {
-        return remoteTokenPriceUSDX128;
+    function fetchRemoteTokenPriceUSD() internal view virtual returns (uint256) {
+        return remoteTokenPriceUSD;
     }
 }

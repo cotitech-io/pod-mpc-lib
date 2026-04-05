@@ -11,8 +11,15 @@ interface IUniswapV2Pair {
 }
 
 /// @title UniswapPriceOracle
-/// @notice {PriceOracle} implementation that reads Uniswap V2 reserves for local and remote token USD quotes.
+/// @notice {PriceOracle} implementation that reads **Uniswap V2** pair reserves for local and remote token vs quote pricing.
 /// @dev Cached reads for fee math; Uniswap is touched only inside {PriceOracle.fetchPrices} after interval checks. Spot reserves are manipulable—prefer TWAP or trusted feeds in production.
+///
+/// **Pricing (V2):** Constant-product pools satisfy `x * y = k`. The marginal spot price of the base asset in the quote asset,
+/// in smallest units, is `R_quote / R_base`. We store that ratio as an **18-decimal fixed-point** value per {PriceOracle.PRICE_SCALE}
+/// (i.e. `floor(R_quote * 1e18 / R_base)`), not Uniswap V3 `sqrtPriceX96` nor Q128.128-style encodings.
+///
+/// **Decimals:** `R_base` and `R_quote` are pair reserves in token minimal units; the returned value is quote-per-base scaled by `1e18`.
+/// Ratios used in fee math (local vs remote) cancel absolute quote scaling when both pairs share the same quote asset.
 contract UniswapPriceOracle is PriceOracle {
     error UniswapPriceOracleZeroReserves();
 
@@ -50,17 +57,18 @@ contract UniswapPriceOracle is PriceOracle {
     }
 
     /// @dev Overrides parent to read spot price from {localPair}.
-    function fetchLocalTokenPriceUSDX128() internal view override returns (uint256) {
-        return _spotPriceX128(localPair, localTokenIsToken0);
+    function fetchLocalTokenPriceUSD() internal view override returns (uint256) {
+        return _spotPrice(localPair, localTokenIsToken0);
     }
 
     /// @dev Overrides parent to read spot price from {remotePair}.
-    function fetchRemoteTokenPriceUSDX128() internal view override returns (uint256) {
-        return _spotPriceX128(remotePair, remoteTokenIsToken0);
+    function fetchRemoteTokenPriceUSD() internal view override returns (uint256) {
+        return _spotPrice(remotePair, remoteTokenIsToken0);
     }
 
-    /// @dev Spot quote per base wei: `(quoteReserve * PRICE_SCALE) / baseReserve`.
-    function _spotPriceX128(IUniswapV2Pair pair, bool baseIsToken0) private view returns (uint256) {
+    /// @dev V2 marginal price: `quote_per_base = R_quote / R_base` (smallest units). Returns `quote_per_base * PRICE_SCALE`
+    /// with `PRICE_SCALE = 1e18` ({PriceOracle.PRICE_SCALE}). Uses {Math.mulDiv} for overflow-safe rounding down.
+    function _spotPrice(IUniswapV2Pair pair, bool baseIsToken0) private view returns (uint256) {
         (uint112 r0, uint112 r1,) = pair.getReserves();
         uint256 base;
         uint256 quote;

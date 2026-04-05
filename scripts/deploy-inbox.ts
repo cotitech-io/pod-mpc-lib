@@ -1,14 +1,18 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { network } from "hardhat";
+import { zeroAddress } from "viem";
 import {
   appendDeploymentLog,
   asAddress,
+  configureTestnetInboxMinFees,
   deployAndWireTestnetPriceOracle,
   getChainConfig,
   getViemClients,
+  isTestnetSepoliaCotiPairChain,
   readDeployConfig,
   requireEnv,
+  resolveDeployerAddress,
 } from "./deploy-utils.js";
 
 const deployConfigPath = path.resolve(process.cwd(), "deployConfig.json");
@@ -41,15 +45,58 @@ const main = async () => {
   await inbox.write.addMiner([minerAddress]);
   console.log("[deploy-inbox] Miner added");
 
-  console.log("[deploy-inbox] Deploying PriceOracle and wiring inbox...");
-  const priceOracle = await deployAndWireTestnetPriceOracle({
-    viem,
-    publicClient,
-    walletClient,
-    chainId,
-    inbox,
+  const deployer = await resolveDeployerAddress(walletClient);
+  const writeOpts = { account: deployer } as const;
+
+  const currentOracle = await inbox.read.priceOracle();
+  let priceOracleAddress: `0x${string}`;
+
+  if (currentOracle !== zeroAddress) {
+    console.log(`[deploy-inbox] priceOracle already set (${currentOracle}), skip wiring`);
+    priceOracleAddress = currentOracle;
+  } else {
+    const fromConfig = existingChainConfig.priceOracle?.trim();
+    const presetRaw =
+      fromConfig && fromConfig.startsWith("0x") && fromConfig.length === 42 ? fromConfig : undefined;
+
+    if (presetRaw) {
+      const preset = asAddress(presetRaw, "deployConfig.json chains[chainId].priceOracle");
+      console.log(`[deploy-inbox] Wiring PriceOracle from deployConfig.json: ${preset}`);
+      await inbox.write.setPriceOracle([preset], writeOpts);
+      priceOracleAddress = preset;
+    } else {
+      console.log("[deploy-inbox] Deploying PriceOracle and wiring inbox...");
+      const priceOracle = await deployAndWireTestnetPriceOracle({
+        viem,
+        publicClient,
+        walletClient,
+        chainId,
+        inbox,
+      });
+      priceOracleAddress = priceOracle.address;
+      console.log(`[deploy-inbox] PriceOracle deployed and set on inbox: ${priceOracleAddress}`);
+    }
+  }
+
+  const oracleForLog = await viem.getContractAt("PriceOracle", priceOracleAddress, {
+    client: { public: publicClient, wallet: walletClient },
   });
-  console.log(`[deploy-inbox] PriceOracle deployed and set on inbox: ${priceOracle.address}`);
+  const [localUsd, remoteUsd] = await oracleForLog.read.getPricesUSD();
+  console.log(`[deploy-inbox] Oracle getPricesUSD (18-dec): local=${localUsd} remote=${remoteUsd}`);
+
+  if (isTestnetSepoliaCotiPairChain(chainId)) {
+    console.log("[deploy-inbox] Applying testnet min fee configs (local=this chain, remote=paired chain)…");
+    await configureTestnetInboxMinFees({
+      inbox,
+      publicClient,
+      walletClient,
+      chainId,
+    });
+  } else {
+    console.log(
+      `[deploy-inbox] Skipping testnet min fee configs (chainId=${chainId} not Sepolia/COTI/local 31337)`
+    );
+  }
 
   console.log("[deploy-inbox] Writing deployment log entry");
   await appendDeploymentLog({
@@ -60,13 +107,13 @@ const main = async () => {
   });
   await appendDeploymentLog({
     contract: "PriceOracle",
-    address: priceOracle.address,
+    address: priceOracleAddress,
     chainId,
     network: networkLabel,
   });
 
   existingChainConfig.inbox = inbox.address;
-  existingChainConfig.priceOracle = priceOracle.address;
+  existingChainConfig.priceOracle = priceOracleAddress;
   await fs.writeFile(deployConfigPath, `${JSON.stringify(deployConfig, null, 2)}\n`, "utf8");
   console.log("[deploy-inbox] Updated deployConfig.json");
 

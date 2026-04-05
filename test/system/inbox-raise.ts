@@ -5,7 +5,6 @@ import { encodeFunctionData, stringToHex, toFunctionSelector } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import {
   collectInboxFeesAfterTest,
-  DEFAULT_POD_CALLBACK_FEE_WEI,
   fundContractForInboxFees,
   logStep,
   normalizePrivateKey,
@@ -68,8 +67,8 @@ describe("Inbox raise() → error callback (system)", async function () {
     // 1) Source chain: enqueue two-way message (error path only in this harness).
     logStep("Hardhat: startRaiseRoundTrip → inbox records outbound request");
     const txHash = await raiseSepoliaAsCotiWallet.write.startRaiseRoundTrip(
-      [expectedPayload, DEFAULT_POD_CALLBACK_FEE_WEI],
-      podTwoWayWriteOptions()
+      [expectedPayload, ctx.podTwoWayFees.callbackFeeWei],
+      podTwoWayWriteOptions(ctx.podTwoWayFees)
     );
     await ctx.sepolia.publicClient.waitForTransactionReceipt({ hash: txHash, ...receiptWaitOptions });
 

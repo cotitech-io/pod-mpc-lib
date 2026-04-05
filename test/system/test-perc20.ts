@@ -7,7 +7,6 @@ import { Wallet, ONBOARD_CONTRACT_ADDRESS, transferNative } from "@coti-io/coti-
 import { JsonRpcProvider } from "ethers";
 import {
   fundContractForInboxFees,
-  DEFAULT_POD_CALLBACK_FEE_WEI,
   podTwoWayWriteOptions,
   getLatestRequest,
   getResponseRequestBySource,
@@ -181,8 +180,8 @@ describe("PErc20 (system)", async function () {
 
     logStep("Test: sending transfer()");
     const txHash = await pErc20AsCoti.write.transfer(
-      [itTo, itAmount, DEFAULT_POD_CALLBACK_FEE_WEI],
-      podTwoWayWriteOptions()
+      [itTo, itAmount, ctx.podTwoWayFees.callbackFeeWei],
+      podTwoWayWriteOptions(ctx.podTwoWayFees)
     );
     logStep(`Test: waiting for tx ${txHash}`);
     await ctx.sepolia.publicClient.waitForTransactionReceipt({ hash: txHash, ...receiptWaitOptions });

@@ -5,6 +5,7 @@ import { network } from "hardhat";
 import {
   appendDeploymentLog,
   asAddress,
+  configureTestnetInboxMinFees,
   deployAndWireTestnetPriceOracle,
   getChainConfig,
   getViemClients,
@@ -99,6 +100,17 @@ const main = async () => {
     inbox: sourceInbox,
   });
   console.log(`[deploy-full-testnet] Source PriceOracle: ${sourcePriceOracle.address}`);
+  const [sourceLocalUsd, sourceRemoteUsd] = await sourcePriceOracle.read.getPricesUSD();
+  console.log(
+    `[deploy-full-testnet] Source oracle getPricesUSD (18-dec): local=${sourceLocalUsd} remote=${sourceRemoteUsd}`
+  );
+  console.log("[deploy-full-testnet] Configuring source inbox min fees (local=ETH, remote=COTI)…");
+  await configureTestnetInboxMinFees({
+    inbox: sourceInbox,
+    publicClient: sourcePublicClient,
+    walletClient: sourceWalletClient,
+    chainId: sourceChainId,
+  });
   await appendDeploymentLog({
     contract: "Inbox",
     address: sourceInbox.address,
@@ -134,6 +146,17 @@ const main = async () => {
     inbox: cotiInbox,
   });
   console.log(`[deploy-full-testnet] COTI PriceOracle: ${cotiPriceOracle.address}`);
+  const [cotiLocalUsd, cotiRemoteUsd] = await cotiPriceOracle.read.getPricesUSD();
+  console.log(
+    `[deploy-full-testnet] COTI oracle getPricesUSD (18-dec): local=${cotiLocalUsd} remote=${cotiRemoteUsd}`
+  );
+  console.log("[deploy-full-testnet] Configuring COTI inbox min fees (local=COTI, remote=ETH)…");
+  await configureTestnetInboxMinFees({
+    inbox: cotiInbox,
+    publicClient: cotiPublicClient,
+    walletClient: cotiWalletClient,
+    chainId: cotiChainIdNumber,
+  });
   await appendDeploymentLog({
     contract: "Inbox",
     address: cotiInbox.address,
@@ -161,8 +184,6 @@ const main = async () => {
     });
     millionaireAddress = millionaire.address;
     console.log(`[deploy-full-testnet] Millionaire deployed: ${millionaire.address}`);
-    const fundM = await sourceWalletClient.sendTransaction({ to: millionaire.address, value: 10n ** 18n });
-    await sourcePublicClient.waitForTransactionReceipt({ hash: fundM });
     console.log("[deploy-full-testnet] Configuring Millionaire...");
     await millionaire.write.configure(podConfigureKeepInbox(cotiExecutor.address, cotiChainId));
     console.log("[deploy-full-testnet] Millionaire configured");

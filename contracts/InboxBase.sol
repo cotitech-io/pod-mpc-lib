@@ -5,6 +5,8 @@ import "./fee/InboxFeeManager.sol";
 import "./IInbox.sol";
 import "./mpccodec/MpcAbiCodec.sol";
 
+import "hardhat/console.sol";
+
 /// @title InboxBase
 /// @notice Core inbox: outbound requests, inbound execution context, responses, errors, and MPC calldata encoding.
 /// @dev Mixed with {InboxFeeManager}. Subcontracts add miner and ownership behavior.
@@ -66,13 +68,16 @@ contract InboxBase is IInbox, InboxFeeManager {
         bytes4 callbackSelector,
         bytes4 errorSelector,
         uint256 callbackFeeLocalWei
-    ) external payable virtual returns (bytes32) {
+    ) external payable virtual returns (bytes32 requestId) {
         uint256 dataSize = abi.encode(methodCall).length;
         (uint256 targetFeeGas, uint256 callerFeeGas) =
             validateAndPrepareTwoWayFees(dataSize, msg.value, callbackFeeLocalWei);
-        return _sendTwoWayMessage(
+        console.log("targetFeeGas", targetFeeGas);
+        console.log("callerFeeGas", callerFeeGas);
+        requestId = _sendTwoWayMessage(
             targetChainId, targetContract, methodCall, callbackSelector, errorSelector, targetFeeGas, callerFeeGas
         );
+        priceOracle.fetchPrices();
     }
 
     /// @inheritdoc IInbox
@@ -81,10 +86,11 @@ contract InboxBase is IInbox, InboxFeeManager {
         address targetContract,
         MpcMethodCall calldata methodCall,
         bytes4 errorSelector
-    ) external payable returns (bytes32) {
+    ) external payable returns (bytes32 requestId) {
         uint256 dataSize = abi.encode(methodCall).length;
         uint256 targetFeeGas = validateAndPrepareOneWayFees(dataSize, msg.value);
-        return _sendOneWayMessage(targetChainId, targetContract, methodCall, errorSelector, bytes32(0), targetFeeGas, 0);
+        requestId = _sendOneWayMessage(targetChainId, targetContract, methodCall, errorSelector, bytes32(0), targetFeeGas, 0);
+        priceOracle.fetchPrices();
     }
 
     /// @inheritdoc IInbox
@@ -328,7 +334,6 @@ contract InboxBase is IInbox, InboxFeeManager {
         requests[requestId] = request;
 
         emit MessageSent(requestId, targetChainId, targetContract, methodCall, callbackSelector, errorSelector);
-        priceOracle.fetchPrices();
         return requestId;
     }
 

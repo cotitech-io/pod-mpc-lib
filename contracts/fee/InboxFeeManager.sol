@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
+import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./PriceOracle.sol";
+
+import "hardhat/console.sol";
 
 /// @title InboxFeeManager
 /// @notice Validates cross-chain message fee budgets. Mixed into {InboxBase}.
@@ -114,10 +117,18 @@ abstract contract InboxFeeManager {
         }
 
         uint256 gasPrice = tx.gasprice != 0 ? tx.gasprice : DEFAULT_GAS_PRICE;
+        console.log("gasPrice", gasPrice);
+        console.log("totalFeeLocalWei", totalFeeLocalWei);
+        console.log("callbackFeeLocalWei", callbackFeeLocalWei);
         callerGasLocalUnits = callbackFeeLocalWei / gasPrice;
+        console.log("callerGasLocalUnits", callerGasLocalUnits);
         uint256 remoteGasWei = totalFeeLocalWei - callbackFeeLocalWei;
-        targetGasRemoteUnits = (remoteGasWei *
-            priceOracle.getLocalTokenPriceUSDX128() / priceOracle.getRemoteTokenPriceUSDX128()) / gasPrice;
+        console.log("remoteGasWei", remoteGasWei);
+        targetGasRemoteUnits = Math.mulDiv(remoteGasWei / gasPrice, priceOracle.getLocalTokenPriceUSD(),
+            priceOracle.getRemoteTokenPriceUSD());
+        console.log("targetGasRemoteUnits", targetGasRemoteUnits);
+        console.log("localTokenPriceUSD", priceOracle.getLocalTokenPriceUSD());
+        console.log("remoteTokenPriceUSD", priceOracle.getRemoteTokenPriceUSD());
 
         if (callerGasLocalUnits < expectedMinFee(dataSize, localMinFeeConfig)) {
             revert CallbackFeeTooLow(callerGasLocalUnits);
@@ -141,8 +152,8 @@ abstract contract InboxFeeManager {
             revert TotalFeeTooLow(totalFeeLocalWei);
         }
         uint256 gasPrice = tx.gasprice != 0 ? tx.gasprice : DEFAULT_GAS_PRICE;
-        targetGasRemoteUnits = (totalFeeLocalWei *
-            priceOracle.getLocalTokenPriceUSDX128() / priceOracle.getRemoteTokenPriceUSDX128()) / gasPrice;
+        targetGasRemoteUnits = Math.mulDiv(totalFeeLocalWei / gasPrice,
+            priceOracle.getLocalTokenPriceUSD(), priceOracle.getRemoteTokenPriceUSD());
         if (targetGasRemoteUnits < expectedMinFee(dataSize, remoteMinFeeConfig)) {
             revert TargetFeeTooLow(targetGasRemoteUnits);
         }
@@ -209,9 +220,9 @@ abstract contract InboxFeeManager {
     ) external view returns (uint256 targetGasRemote, uint256 callerGasLocal) {
         (uint256 targetGas, uint256 callerGas) = calculateTwoWayFeeRequired(
             remoteMethodCallSize, callBackMethodCallSize, remoteMethodExecutionGas, callBackMethodExecutionGas, gasPrice);
-        uint256 localTokenPrice = priceOracle.getLocalTokenPriceUSDX128();
-        uint256 remoteTokenPrice = priceOracle.getRemoteTokenPriceUSDX128();
-        uint256 targetGasInLocalToken = targetGas * remoteTokenPrice / localTokenPrice;
+        uint256 localTokenPrice = priceOracle.getLocalTokenPriceUSD();
+        uint256 remoteTokenPrice = priceOracle.getRemoteTokenPriceUSD();
+        uint256 targetGasInLocalToken = Math.mulDiv(targetGas, remoteTokenPrice, localTokenPrice);
         uint256 callerGasInLocalToken = callerGas;
         return (targetGasInLocalToken, callerGasInLocalToken);
     }

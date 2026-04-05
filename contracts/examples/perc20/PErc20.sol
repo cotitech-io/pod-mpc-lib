@@ -6,6 +6,7 @@ import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
 import "../../IInbox.sol";
 import "../../mpc/PodLib.sol";
 import "../../mpc/PodLibBase.sol";
+import "../../mpc/PodUserSepolia.sol";
 import "../../mpccodec/MpcAbiCodec.sol";
 
 /// @dev COTI executor hook; must match deployed `transferFrom` on the COTI example.
@@ -18,7 +19,7 @@ interface IPErc20Coti {
 /// @title PErc20
 /// @notice Minimal PoD example: 64-bit balances keyed by hash; two-way inbox to `IPErc20Coti` on COTI.
 /// @dev Sample only: no allowances, weak pending-state story, `ctUint64` balance encoding.
-contract PErc20 is PodLib {
+contract PErc20 is PodLib, PodUserSepolia {
     using MpcAbiCodec for MpcAbiCodec.MpcMethodCallContext;
 
     mapping(bytes32 => ctUint64) public balanceOf;

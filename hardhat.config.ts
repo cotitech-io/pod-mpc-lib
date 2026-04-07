@@ -1,21 +1,54 @@
+import "dotenv/config";
+import path from "node:path";
+import "@nomicfoundation/hardhat-verify";
 import hardhatToolboxViemPlugin from "@nomicfoundation/hardhat-toolbox-viem";
 import { configVariable, defineConfig } from "hardhat/config";
 
+const envOrConfig = (key: string) => process.env[key] ?? configVariable(key);
+const privateKeyFor = (key: string) =>
+  process.env[key] ?? process.env.PRIVATE_KEY ?? configVariable(key);
+
+/** COTI testnet: prefer dedicated key, then `_PRIVATE_KEY` (miner / alternate account in `.env`), then `PRIVATE_KEY`. */
+const privateKeyForCotiTestnet = () =>
+  process.env.COTI_TESTNET_PRIVATE_KEY?.trim() ||
+  process.env._PRIVATE_KEY?.trim() ||
+  process.env.PRIVATE_KEY?.trim() ||
+  configVariable("PRIVATE_KEY");
+
 export default defineConfig({
   plugins: [hardhatToolboxViemPlugin],
-  solidity: {
-    profiles: {
-      default: {
-        version: "0.8.28",
-      },
-      production: {
-        version: "0.8.28",
-        settings: {
-          optimizer: {
-            enabled: true,
-            runs: 200,
-          },
+  verify: {
+    etherscan: {
+      apiKey: envOrConfig("ETHERSCAN_API_KEY"),
+      enabled: true,
+    },
+  },
+  chainDescriptors: {
+    7082400: {
+      name: "COTI Testnet",
+      chainType: "generic",
+      blockExplorers: {
+        blockscout: {
+          name: "COTI Testnet Blockscout",
+          url: "https://testnet.cotiscan.io",
+          apiUrl: "https://testnet.cotiscan.io/api",
         },
+      },
+    },
+  },
+  solidity: {
+    // Must be ≥0.8.20 for @openzeppelin/contracts@5.x (e.g. Ownable).
+    // Keep `package.json` `solc` pinned to this exact version so `node_modules/solc/soljson.js` matches.
+    version: "0.8.28",
+    path: path.resolve("node_modules/solc/soljson.js"),
+    preferWasm: false,
+    settings: {
+      evmVersion: "paris",
+      viaIR: true,
+      optimizer: {
+        enabled: true,
+        // Lower runs shrink deployment size (higher runtime gas). For Inbox ~29kB, try 1–200.
+        runs: 10,
       },
     },
   },
@@ -25,6 +58,14 @@ export default defineConfig({
     hardhat: {
       type: "edr-simulated",
       chainId: parseInt(process.env.HARDHAT_CHAIN_ID || "31337"),
+      accounts: process.env.PRIVATE_KEY
+        ? [
+            {
+              privateKey: process.env.PRIVATE_KEY,
+              balance: "100000000000000000000",
+            },
+          ]
+        : undefined,
     },
     hardhatMainnet: {
       type: "edr-simulated",
@@ -37,27 +78,30 @@ export default defineConfig({
     sepolia: {
       type: "http",
       chainType: "l1",
-      url: configVariable("SEPOLIA_RPC_URL"),
-      accounts: [configVariable("SEPOLIA_PRIVATE_KEY")],
+      url: envOrConfig("SEPOLIA_RPC_URL"),
+      accounts: [privateKeyFor("SEPOLIA_PRIVATE_KEY")],
+    },
+    cotiTestnet: {
+      type: "http",
+      chainType: "l1",
+      chainId: 7082400,
+      url: envOrConfig("COTI_TESTNET_RPC_URL"),
+      accounts: [privateKeyForCotiTestnet()],
     },
     // Chain 1 for multichain message passing testing
-    // Note: The actual chain ID is set in the contract constructor
-    // This network config just needs to match what the node reports
+    // Use in-process simulation to avoid external nodes in tests
     chain1: {
-      type: "http",
-      url: "http://127.0.0.1:8545",
-      chainId: 31337, // Node reports this, but contract uses its own chainId
+      type: "edr-simulated",
+      chainId: 31337,
       accounts: {
         mnemonic: "test test test test test test test test test test test junk",
       },
     },
     // Chain 2 for multichain message passing testing
-    // Note: The actual chain ID is set in the contract constructor
-    // This network config just needs to match what the node reports
+    // Use in-process simulation to avoid external nodes in tests
     chain2: {
-      type: "http",
-      url: "http://127.0.0.1:8546",
-      chainId: 31337, // Node reports this, but contract uses its own chainId
+      type: "edr-simulated",
+      chainId: 31338,
       accounts: {
         mnemonic: "test test test test test test test test test test test junk",
       },

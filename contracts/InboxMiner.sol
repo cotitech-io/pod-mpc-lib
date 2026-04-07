@@ -1,0 +1,142 @@
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.19;
+
+import "./IInboxMiner.sol";
+import "./InboxBase.sol";
+import "./MinerBase.sol";
+
+/// @title InboxMiner
+/// @notice Miner-driven inbox: ingest mined payloads, execute targets, and collect fees.
+contract InboxMiner is InboxBase, MinerBase, IInboxMiner {
+    /// @param _chainId This chain's ID (see {InboxBase}).
+    constructor(uint256 _chainId) InboxBase(_chainId) MinerBase(msg.sender) {}
+
+    /// @inheritdoc IInboxMiner
+    function batchProcessRequests(uint256 sourceChainId, MinedRequest[] memory mined) external onlyMiner {
+        require(sourceChainId != chainId, "Inbox: sourceChainId cannot be this chain");
+
+        uint256 allowedNonce = 1;
+        if (lastIncomingRequestId[sourceChainId] != bytes32(0)) {
+            (, allowedNonce) = _unpackRequestId(lastIncomingRequestId[sourceChainId]);
+            allowedNonce++;
+        }
+
+        for (uint256 i = 0; i < mined.length; i++) {
+            MinedRequest memory minedRequest = mined[i];
+            bytes32 requestId = minedRequest.requestId;
+            (, uint256 minedNonce) = _unpackRequestId(requestId);
+            require(minedNonce == allowedNonce, "Inbox: mined nonces must be contiguous");
+            allowedNonce++;
+            Request storage incomingRequest = incomingRequests[requestId];
+            require(incomingRequest.requestId == bytes32(0), "Inbox: request already processed");
+            require(minedRequest.sourceContract != address(0), "Inbox: invalid source contract");
+            require(minedRequest.targetContract != address(0), "Inbox: invalid target contract");
+
+            Request memory newIncomingRequest = Request({
+                requestId: requestId,
+                targetChainId: sourceChainId,
+                targetContract: minedRequest.targetContract,
+                methodCall: minedRequest.methodCall,
+                callerContract: minedRequest.sourceContract,
+                originalSender: minedRequest.sourceContract,
+                timestamp: uint64(block.timestamp),
+                callbackSelector: minedRequest.callbackSelector,
+                errorSelector: minedRequest.errorSelector,
+                isTwoWay: minedRequest.isTwoWay,
+                executed: false,
+                sourceRequestId: minedRequest.sourceRequestId,
+                targetFee: minedRequest.targetFee,
+                callerFee: minedRequest.callerFee
+            });
+
+            incomingRequests[requestId] = newIncomingRequest;
+            incomingRequest = incomingRequests[requestId];
+            emit MessageReceived(requestId, sourceChainId, minedRequest.sourceContract, minedRequest.methodCall);
+
+            _executeIncomingRequest(incomingRequest, sourceChainId);
+
+            if (incomingRequest.requestId != bytes32(0) && incomingRequest.sourceRequestId != bytes32(0)
+                && !incomingRequest.isTwoWay) {
+                bytes32 originalRequestId = incomingRequest.sourceRequestId;
+                Request storage originalRequest = requests[originalRequestId];
+
+                if (originalRequest.requestId != bytes32(0) && !originalRequest.executed) {
+                    originalRequest.executed = true;
+                    emit IncomingResponseReceived(originalRequestId, incomingRequest.requestId);
+                }
+            }
+        }
+
+        if (mined.length > 0) {
+            lastIncomingRequestId[sourceChainId] = mined[mined.length - 1].requestId;
+        }
+    }
+
+    /// @notice Configure the oracle used for fee conversion.
+    /// @param oracle {PriceOracle} address.
+    function setPriceOracle(address oracle) external onlyOwner {
+        _setPriceOracle(oracle);
+    }
+
+    /// @notice Update minimum fee templates for local and remote legs.
+    /// @param _local Local leg template.
+    /// @param _remote Remote leg template.
+    function updateMinFeeConfigs(FeeConfig memory _local, FeeConfig memory _remote) external onlyOwner {
+        _updateMinFeeConfigs(_local, _remote);
+    }
+
+    /// @inheritdoc IInboxMiner
+    function collectFees(address payable to) external onlyOwner {
+        _collectFees(to);
+    }
+
+    /// @dev Executes one mined request: encode calldata, call target with `gas` from `targetFee`, record errors.
+    /// @param incomingRequest Storage ref to the incoming request.
+    /// @param sourceChainId Chain that sent the request.
+    function _executeIncomingRequest(Request storage incomingRequest, uint256 sourceChainId) internal {
+        _currentContext = ExecutionContext({
+            remoteChainId: sourceChainId,
+            remoteContract: incomingRequest.originalSender,
+            requestId: incomingRequest.requestId
+        });
+
+        address targetContract = incomingRequest.targetContract;
+        (bool encodedOk, bytes memory callData, bytes memory encodeErr) = _safeEncodeMethodCall(
+            incomingRequest.methodCall
+        );
+
+        if (!encodedOk) {
+            _recordEncodeError(incomingRequest.requestId, encodeErr);
+
+            _currentContext = ExecutionContext({remoteChainId: 0, remoteContract: address(0), requestId: bytes32(0)});
+
+            incomingRequest.executed = true;
+            return;
+        }
+
+        uint256 targetGasBudget = _localRequestExecutionBudget(incomingRequest.targetFee);
+        uint256 gasBeforeSubcall = gasleft();
+
+        bool success;
+        bytes memory returnData;
+        (success, returnData) = targetContract.call{gas: targetGasBudget}(callData);
+
+        uint256 gasUsed = gasBeforeSubcall - gasleft();
+        uint256 gasRemainingApprox = targetGasBudget > gasUsed ? targetGasBudget - gasUsed : 0;
+        emit FeeExecutionSettled(incomingRequest.requestId, gasUsed, gasRemainingApprox);
+
+        _currentContext = ExecutionContext({remoteChainId: 0, remoteContract: address(0), requestId: bytes32(0)});
+
+        incomingRequest.executed = true;
+
+        if (!success) {
+            bytes32 rid = incomingRequest.requestId;
+            errors[rid] = Error({
+                requestId: rid,
+                errorCode: ERROR_CODE_EXECUTION_FAILED,
+                errorMessage: returnData
+            });
+            emit ErrorReceived(rid, ERROR_CODE_EXECUTION_FAILED, returnData);
+        }
+    }
+}

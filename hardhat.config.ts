@@ -58,6 +58,9 @@ export default defineConfig({
     hardhat: {
       type: "edr-simulated",
       chainId: parseInt(process.env.HARDHAT_CHAIN_ID || "31337"),
+      forking: {
+        url: envOrConfig("SEPOLIA_RPC_URL"),
+      },
       accounts: process.env.PRIVATE_KEY
         ? [
             {

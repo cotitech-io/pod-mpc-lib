@@ -165,8 +165,6 @@ const MPC_SYSTEM_INBOX_REMOTE_MIN_FEE = {
  */
 export const DEFAULT_MINED_TARGET_EXECUTION_GAS = 2_500_000n;
 
-/** Same as `InboxFeeManager.DEFAULT_GAS_PRICE` — wei per gas passed to `calculateTwoWayFeeRequiredInLocalToken` in setup. */
-const MPC_FEE_CALC_ASSUMED_GAS_PRICE_WEI = 300529002;
 /** Calldata size terms for the two-way fee helper (reasonable MPC payload headroom vs. `test/InboxFeeCalculation.ts`). */
 const MPC_FEE_CALC_CALL_SIZE = 512n;
 /** Extra execution gas terms for `calculateTwoWayFeeRequired` — 0 so estimates match `validateAndPrepareTwoWayFees` minima (template already includes `callbackExecutionGas`). */
@@ -181,13 +179,24 @@ const padPodFeeWei = (x: bigint) => x + x / 20n + 1n;
  *
  * On-chain, the inbox stores **gas units** in `Request.targetFee` / `callerFee`; see {@link PodTwoWayFeeEstimate}.
  */
-export async function estimateGas(inbox: any): Promise<PodTwoWayFeeEstimate> {
+export async function estimateGas(inbox: any, publicClient?: any): Promise<PodTwoWayFeeEstimate> {
+  let assumedGasPriceWei = 300529002n;
+  if (publicClient) {
+    try {
+      const latestGasPrice = await publicClient.getGasPrice();
+      if (latestGasPrice > 0n) {
+        assumedGasPriceWei = latestGasPrice;
+      }
+    } catch {
+      // Fall back to the inbox default gas price assumption when the client can't provide one.
+    }
+  }
   const [targetWei, callerWei] = await inbox.read.calculateTwoWayFeeRequiredInLocalToken([
     MPC_FEE_CALC_CALL_SIZE,
     MPC_FEE_CALC_CALL_SIZE,
     MPC_FEE_CALC_REMOTE_EXEC_GAS,
     MPC_FEE_CALC_CALLBACK_EXEC_GAS,
-    MPC_FEE_CALC_ASSUMED_GAS_PRICE_WEI,
+    assumedGasPriceWei,
   ]);
   return {
     callbackFeeWei: padPodFeeWei(callerWei),
@@ -1101,7 +1110,7 @@ export const setupContext = async (params: {
     inbox: inboxCoti,
   });
 
-  const podTwoWayFees = await estimateGas(inboxSepolia);
+  const podTwoWayFees = await estimateGas(inboxSepolia, sepoliaPublicClient);
 
   if (!reuseSepolia || !reuseCoti) {
     logStep("Configuring COTI executor + miner");
@@ -1324,7 +1333,7 @@ export const setupContextWideMpc = async (
     inbox: inboxCoti,
   });
 
-  const podTwoWayFees = await estimateGas(inboxSepolia);
+  const podTwoWayFees = await estimateGas(inboxSepolia, sepoliaPublicClient);
 
   if (!reuseSepolia || !reuseCoti) {
     logStep("Configuring COTI executor + miner");
@@ -1618,7 +1627,7 @@ export const setupPodTestContext = async (params: {
     inbox: inboxCoti,
   });
 
-  const podTwoWayFees = await estimateGas(inboxSepolia);
+  const podTwoWayFees = await estimateGas(inboxSepolia, sepoliaPublicClient);
 
   if (!reuseSepolia || !reuseCotiFull) {
     logStep("Configuring COTI executor + miner (pod test)");

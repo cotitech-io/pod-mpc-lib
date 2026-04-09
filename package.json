@@ -10,6 +10,8 @@
     "deploy:oracle": "hardhat run scripts/deploy-oracle.ts",
     "deploy:inbox:coti": "hardhat run scripts/deploy-inbox-with-executor.ts",
     "deploy:mpc-executor": "hardhat run scripts/deploy-mpc-executor.ts",
+    "deploy:private-budget-guard": "hardhat run scripts/deploy-private-budget-guard.ts",
+    "deploy:private-budget-guard:coti": "hardhat run scripts/deploy-private-budget-guard-coti.ts",
     "deploy:examples:source": "hardhat run scripts/deploy-examples-source.ts",
     "deploy:examples:coti": "hardhat run scripts/deploy-examples-coti.ts",
     "test": "hardhat test",
@@ -18,6 +20,7 @@
     "test:inbox-fee": "NODE_OPTIONS='--max-old-space-size=8192' hardhat test test/InboxFeeCalculation.ts",
     "test:inbox": "hardhat test test/Inbox.ts",
     "test:inbox-raise": "hardhat test test/system/inbox-raise.ts",
+    "test:private-budget-guard": "hardhat test test/system/private-budget-guard.ts",
     "test:pod-token": "POD_TOKEN_SYSTEM_TESTS=1 hardhat test test/tokens/pod-token.ts",
     "relay": "tsx scripts/relay-node.ts"
   },

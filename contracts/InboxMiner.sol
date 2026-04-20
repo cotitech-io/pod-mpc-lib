@@ -90,6 +90,46 @@ contract InboxMiner is InboxBase, MinerBase, IInboxMiner {
         _collectFees(to);
     }
 
+    /// @dev Retries a failed request, if the method execution is failed. Caller pays the execution gas so we don't care about the gas limit.
+    /// @param requestId The ID of the incoming request to retry.
+    function retryFailedRequest(bytes32 requestId) external {
+        if (requestId == bytes32(0)) {
+            revert RequestIdRequired();
+        }
+        Request storage incomingRequest = incomingRequests[requestId];
+        (uint256 sourceChainId, ) = _unpackRequestId(requestId);
+        uint256 errorCode = errors[requestId].errorCode;
+        if (!incomingRequest.executed || errorCode != ERROR_CODE_EXECUTION_FAILED) {
+            revert RetryFailedRequestNotAFailedRequest();
+        }
+
+        _currentContext = ExecutionContext({
+            remoteChainId: sourceChainId,
+            remoteContract: incomingRequest.originalSender,
+            requestId: requestId
+        });
+
+        address targetContract = incomingRequest.targetContract;
+        (bool encodedOk, bytes memory callData, bytes memory encodeErr) = _safeEncodeMethodCall(
+            incomingRequest.methodCall
+        );
+        if (!encodedOk) {
+            _recordEncodeError(requestId, encodeErr);
+        }
+
+        bool success;
+        bytes memory returnData;
+        (success, returnData) = targetContract.call(callData);
+        _currentContext = ExecutionContext({remoteChainId: 0, remoteContract: address(0), requestId: bytes32(0)});
+
+        if (!success) {
+            revert RetryFailedRequestExecutionFailed(returnData);
+        } 
+
+        delete errors[requestId];
+        emit RetryFailedRequestSuccess(requestId);
+    }
+
     /// @dev Executes one mined request: encode calldata, call target with `gas` from `targetFee`, record errors.
     /// @param incomingRequest Storage ref to the incoming request.
     /// @param sourceChainId Chain that sent the request.

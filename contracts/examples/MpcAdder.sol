@@ -38,7 +38,12 @@ contract MpcAdder is PodLib {
 
     /// @notice Receive the response and store the ciphertext result.
     /// @param data The response payload containing the ciphertext.
-    function receiveC(bytes memory data) external onlyInbox {
+    function receiveC(bytes memory data) external virtual onlyInbox {
+        _receiveResult(data);
+    }
+
+    /// @dev Allows {MpcAdderPausable} to gate delivery without duplicating storage.
+    function _receiveResult(bytes memory data) internal virtual {
         _result = abi.decode(data, (ctUint64));
     }
 

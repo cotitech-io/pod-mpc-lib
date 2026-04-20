@@ -970,6 +970,8 @@ const normalizeCiphertextInternal = (ciphertext: unknown): bigint => {
 export const setupContext = async (params: {
   sepoliaViem: any;
   cotiViem: any;
+  /** Defaults to `MpcAdder`; use `MpcAdderPausable` for retry/pause system tests. */
+  podAdderContractName?: "MpcAdder" | "MpcAdderPausable";
 }): Promise<TestContext> => {
   requireEnv("COTI_TESTNET_RPC_URL");
   requirePrivateKey("COTI_TESTNET_PRIVATE_KEY");
@@ -1019,21 +1021,23 @@ export const setupContext = async (params: {
     reuseCoti = false;
   }
 
+  const podAdderContractName = params.podAdderContractName ?? "MpcAdder";
+
   let inboxSepolia: any;
   let mpcAdder: any;
   if (reuseSepolia) {
-    logStep(`Reusing Hardhat contracts: Inbox=${inboxSepoliaAddress} MpcAdder=${mpcAdderAddress}`);
+    logStep(`Reusing Hardhat contracts: Inbox=${inboxSepoliaAddress} ${podAdderContractName}=${mpcAdderAddress}`);
     inboxSepolia = await params.sepoliaViem.getContractAt("Inbox", inboxSepoliaAddress as `0x${string}`);
-    mpcAdder = await params.sepoliaViem.getContractAt("MpcAdder", mpcAdderAddress as `0x${string}`);
+    mpcAdder = await params.sepoliaViem.getContractAt(podAdderContractName, mpcAdderAddress as `0x${string}`);
   } else {
-    logStep("Deploying Hardhat Inbox + MpcAdder");
+    logStep(`Deploying Hardhat Inbox + ${podAdderContractName}`);
     inboxSepolia = await params.sepoliaViem.deployContract("Inbox", [BigInt(sepoliaChainId)]);
-    mpcAdder = await params.sepoliaViem.deployContract("MpcAdder", [inboxSepolia.address]);
+    mpcAdder = await params.sepoliaViem.deployContract(podAdderContractName, [inboxSepolia.address]);
   }
 
   await fundContractForInboxFees(hardhatCotiWallet, sepoliaPublicClient, mpcAdder.address as `0x${string}`);
 
-  const mpcAdderAsCoti = await params.sepoliaViem.getContractAt("MpcAdder", mpcAdder.address, {
+  const mpcAdderAsCoti = await params.sepoliaViem.getContractAt(podAdderContractName, mpcAdder.address, {
     client: {
       public: sepoliaPublicClient,
       wallet: hardhatCotiWallet,

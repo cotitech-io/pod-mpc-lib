@@ -96,10 +96,23 @@ interface IPodERC20 {
     function transfer(address to, itUint256 calldata value, uint256 callbackFeeLocalWei) external payable returns (bytes32 requestId);
 
     /**
+     * @notice Starts an encrypted transfer of `value` from the caller to `to`.
+     * @return requestId Inbox request id; completion is asynchronous via {Transfer} or {TransferFailed}.
+     * @dev The callback fee is calculated within the contract
+     */
+    function transfer(address to, itUint256 calldata value) external payable returns (bytes32 requestId);
+
+    /**
      * @notice Starts a transfer from `from` to `to` using allowance granted to `msg.sender`.
      * @dev **Gotcha:** allowance checks and consumption happen on COTI; this entry point only forwards the MPC call.
      */
     function transferFrom(address from, address to, itUint256 calldata value, uint256 callbackFeeLocalWei) external payable returns (bytes32 requestId);
+
+    /**
+     * @notice Starts a transfer from `from` to `to` using allowance granted to `msg.sender`.
+     * @dev The callback fee is calculated within the contract
+     */
+    function transferFrom(address from, address to, itUint256 calldata value) external payable returns (bytes32 requestId);
 
     /**
      * @notice Like {transfer}, then after success attempts `to.call(data)` with no gas stipend beyond the remaining tx gas.
@@ -115,8 +128,16 @@ interface IPodERC20 {
     /// @dev Reserved: re-encrypt the caller's balance for another account's key (not implemented in the reference token).
     // function setAccountEncryptionAddress(address addr) external returns (bytes32 requestId);
 
-    /// @dev Reserved: transfer with a plain `uint256` amount (implementation may gate on {publicAmountsEnabled}).
-    // function transfer(address to, uint256 amount) external returns (bytes32 requestId);
+    /**
+     * @notice Plain-amount transfer variant; the remote leg receives an un-encrypted `uint256` and garbles it on COTI.
+     * @dev **Gotcha:** exposes the transfer amount in calldata and events on PoD. Same pending-slot rules as the encrypted overload.
+     */
+    function transfer(address to, uint256 amount, uint256 callbackFeeLocalWei) external payable returns (bytes32 requestId);
+
+    /**
+     * @notice Plain-amount {transferFrom} variant; see {transfer(address,uint256,uint256)} gotchas.
+     */
+    function transferFrom(address from, address to, uint256 amount, uint256 callbackFeeLocalWei) external payable returns (bytes32 requestId);
 
     // --- Allowances ---
 
@@ -143,22 +164,20 @@ interface IPodERC20 {
      */
     function approve(address spender, itUint256 calldata value, uint256 callbackFeeLocalWei) external payable returns (bytes32 requestId);
 
-    /// @dev Reserved: plain-uint256 approval variant (implementation may gate on {publicAmountsEnabled}).
-    // function approve(address spender, uint256 amount) external returns (bytes32 requestId);
+    /**
+     * @notice Sets allowance of `spender` over the caller's tokens to `value` (encrypted input).
+     * @return requestId Asynchronous request id for this approval.
+     * @dev The callback fee is calculated within the contract
+     */
+    function approve(address spender, itUint256 calldata value) external payable returns (bytes32 requestId);
 
-    // --- Mint / burn (optional in concrete token) ---
+    /**
+     * @notice Plain-amount approval variant; the COTI leg garbles `amount` with `MpcCore.setPublic256`.
+     * @dev **Gotcha:** exposes the allowance in calldata and events on PoD.
+     */
+    function approve(address spender, uint256 amount, uint256 callbackFeeLocalWei) external payable returns (bytes32 requestId);
 
-    /// @dev Reserved: mint plain tokens to `to` (not in reference `PodERC20`).
-    // function mint(address to, uint256 amount) external returns (bool);
-
-    /// @dev Reserved: mint with encrypted amount.
-    // function mint(address to, itUint256 calldata amount) external returns (gtBool);
-
-    /// @dev Reserved: mint with garbled amount without re-wrapping; not supported in reference flows.
-    // function mintGt(address to, gtUint256 amount) external returns (gtBool);
-
-    /// @dev Reserved: burn plain amount from caller.
-    // function burn(uint256 amount) external returns (bool);
+    // --- Mint / burn ---
 
     /**
      * @notice Destroys `amount` (encrypted) from the caller on the COTI ledger; PoD balances update on callback.
@@ -167,14 +186,30 @@ interface IPodERC20 {
      */
     function burn(itUint256 calldata amount, uint256 callbackFeeLocalWei) external payable returns (bytes32 requestId);
 
+    /**
+     * @notice Plain-amount burn variant (non-encrypted input).
+     * @dev **Gotcha:** exposes burned amount in calldata; same pending-slot behavior as the encrypted variant.
+     */
+    function burn(uint256 amount, uint256 callbackFeeLocalWei) external payable returns (bytes32 requestId);
+
+    /**
+     * @notice Mints `amount` (encrypted) into `to` on the COTI ledger; PoD balance for `to` updates on callback.
+     * @return requestId Asynchronous mint request.
+     * @dev **Gotcha:** uses the same pending-transfer slot as transfers for the recipient; the `from` side of the callback is `address(0)`.
+     */
+    function mint(address to, itUint256 calldata amount, uint256 callbackFeeLocalWei) external payable returns (bytes32 requestId);
+
+    /**
+     * @notice Plain-amount mint variant; COTI garbles via `MpcCore.setPublic256`.
+     * @dev **Gotcha:** exposes minted amount in calldata.
+     */
+    function mint(address to, uint256 amount, uint256 callbackFeeLocalWei) external payable returns (bytes32 requestId);
+
     /// @dev Reserved: burn garbled amount; not supported in reference flows.
     // function burnGt(gtUint256 amount) external returns (gtBool);
 
     /// @dev Reserved: `transferFrom` with garbled amount; not supported.
     // function transferFromGT(address from, address to, gtUint256 value) external returns (gtBool);
-
-    /// @dev Reserved: plain `transferFrom` (implementation may gate on {publicAmountsEnabled}).
-    // function transferFrom(address from, address to, uint256 amount) external returns (bytes32 requestId);
 
     // --- Sync ---
 

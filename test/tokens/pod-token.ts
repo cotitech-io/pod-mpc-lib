@@ -13,6 +13,7 @@
 import assert from "node:assert/strict";
 import { afterEach, before, describe, it } from "node:test";
 import { network } from "hardhat";
+import { decodeAbiParameters, encodeFunctionData } from "viem";
 import { logStep } from "../system/mpc-test-utils.js";
 import {
   assertIncludesInsensitive,
@@ -47,7 +48,7 @@ if (!runPodTokenSystem) {
 /** Step log for this suite (grep `pod-token`). */
 const pt = (message: string) => logStep(`pod-token: ${message}`);
 
-d("PodERC20 (cross-chain token)", async function () {
+d("PodERC20 (cross-chain token)", { concurrency: 1 }, async function () {
   const { viem: sepoliaViem } = await network.connect({ network: "hardhat" });
   const { viem: cotiViem } = await network.connect({ network: "cotiTestnet" });
 
@@ -218,5 +219,297 @@ d("PodERC20 (cross-chain token)", async function () {
     const text = utf8FromFailedRequestBytes(errHex);
     assertIncludesInsensitive(text, "insufficient");
     pt(`case failed transfer: done (error text includes "insufficient")`);
+  });
+
+  // Matches `MPC_FEE_CALC_ASSUMED_GAS_PRICE_WEI` in `test/system/mpc-test-utils.ts`. When we pin `gasPrice` on an
+  // auto-fee tx to this value, the inbox's runtime `tx.gasprice` equals the price used by `estimateGas` in setup,
+  // so the contract's internal `_estimateTwoWayFeeInLocalToken()` produces the exact same (target, caller) split.
+  const FEE_CALC_GAS_PRICE_WEI = 300_529_002n;
+  const FEE_EST_REMOTE_CALL_SIZE = 512n;
+  const FEE_EST_CALLBACK_CALL_SIZE = 512n;
+  const FEE_EST_REMOTE_EXEC_GAS = 300_000n;
+  const FEE_EST_CALLBACK_EXEC_GAS = 300_000n;
+  /** Small pad that absorbs mulDiv rounding in `calculateTwoWayFeeRequiredInLocalToken` vs `validateAndPrepareTwoWayFees`. */
+  const paddedPodFee = (x: bigint) => x + x / 100n + 1n;
+
+  it("estimateFee matches inbox.calculateTwoWayFeeRequiredInLocalToken for the auto-fee constants", async function () {
+    pt("case estimateFee: start");
+    const [targetWei, callerWei] = (await ctx.base.contracts.inboxSepolia.read.calculateTwoWayFeeRequiredInLocalToken([
+      FEE_EST_REMOTE_CALL_SIZE,
+      FEE_EST_CALLBACK_CALL_SIZE,
+      FEE_EST_REMOTE_EXEC_GAS,
+      FEE_EST_CALLBACK_EXEC_GAS,
+      FEE_CALC_GAS_PRICE_WEI,
+    ])) as [bigint, bigint];
+    pt(`case estimateFee: inbox target=${targetWei} caller=${callerWei}`);
+    assert.ok(targetWei > 0n, "targetWei must be non-zero");
+    assert.ok(callerWei > 0n, "callerWei must be non-zero");
+    // `estimateFee()` uses `tx.gasprice`; in plain `eth_call` that is 0, so `calculateTwoWayFeeRequiredInLocalToken`
+    // returns (0, 0). Override the call-level `gasPrice` so the view sees the same tx.gasprice as the helper above
+    // and `_estimateTwoWayFeeInLocalToken` produces the exact same (target, callback) split.
+    const estimateFeeAbi = [
+      {
+        type: "function",
+        name: "estimateFee",
+        stateMutability: "view",
+        inputs: [],
+        outputs: [
+          { name: "totalFeeWei", type: "uint256" },
+          { name: "targetFeeWei", type: "uint256" },
+          { name: "callbackFeeWei", type: "uint256" },
+        ],
+      },
+    ] as const;
+    const callResult = await ctx.base.sepolia.publicClient.call({
+      to: ctx.pod.address as `0x${string}`,
+      data: encodeFunctionData({ abi: estimateFeeAbi, functionName: "estimateFee" }),
+      gasPrice: FEE_CALC_GAS_PRICE_WEI,
+    });
+    const rawData = (callResult?.data ?? "0x") as `0x${string}`;
+    const [total, target, callback] = decodeAbiParameters(
+      [{ type: "uint256" }, { type: "uint256" }, { type: "uint256" }],
+      rawData
+    ) as [bigint, bigint, bigint];
+    pt(`case estimateFee: contract total=${total} target=${target} callback=${callback}`);
+    assert.equal(target, targetWei, "contract target fee must match inbox calculation");
+    assert.equal(callback, callerWei, "contract callback fee must match inbox calculation");
+    assert.equal(total, targetWei + callerWei, "total must equal target + callback");
+    pt("case estimateFee: done (internal estimator matches inbox helper exactly)");
+  });
+
+  it("auto-fee transfer: contract computes callback fee internally and round-trips", async function () {
+    pt("case auto-fee transfer: start");
+    const start = 3_500n;
+    const sendAmt = 900n;
+    const ownerBefore = await readDecryptedBalance(ctx, ctx.owner);
+    const bobBefore = await readDecryptedBalance(ctx, ctx.bob.address);
+    pt(`case auto-fee transfer: fund owner with ${start}`);
+    await mintOnCotiAndSync(ctx, [{ address: ctx.owner, amount: start }], "autoXferFund");
+
+    const [targetWei, callerWei] = (await ctx.base.contracts.inboxSepolia.read.calculateTwoWayFeeRequiredInLocalToken([
+      FEE_EST_REMOTE_CALL_SIZE,
+      FEE_EST_CALLBACK_CALL_SIZE,
+      FEE_EST_REMOTE_EXEC_GAS,
+      FEE_EST_CALLBACK_EXEC_GAS,
+      FEE_CALC_GAS_PRICE_WEI,
+    ])) as [bigint, bigint];
+    // Add 1% pad: `calculateTwoWayFeeRequiredInLocalToken` rounds target down in mulDiv (remote→local), and
+    // `validateAndPrepareTwoWayFees` rounds again (local→remote), so equality at the boundary can fail by a few units.
+    const totalValue = paddedPodFee(targetWei + callerWei);
+    pt(`case auto-fee transfer: inbox target=${targetWei} caller=${callerWei} totalPadded=${totalValue}`);
+
+    const itAmount = await encryptAmount(ctx, sendAmt);
+    await completePodOpRoundTrip(ctx, "autoXfer", () =>
+      ctx.podAsCoti.write.transfer([ctx.bob.address, itAmount], {
+        value: totalValue,
+        gasPrice: FEE_CALC_GAS_PRICE_WEI,
+      })
+    );
+
+    assert.equal(await readDecryptedBalance(ctx, ctx.owner), ownerBefore + start - sendAmt);
+    assert.equal(await readDecryptedBalance(ctx, ctx.bob.address), bobBefore + sendAmt);
+    pt("case auto-fee transfer: done (succeeded with msg.value = inbox-derived totalExact)");
+  });
+
+  it("auto-fee transfer reverts when msg.value is below the contract's internal estimate", async function () {
+    pt("case auto-fee insufficient value: start");
+    const itAmount = await encryptAmount(ctx, 1n);
+    await assert.rejects(
+      () =>
+        ctx.podAsCoti.write.transfer([ctx.bob.address, itAmount], {
+          value: 1n,
+          gasPrice: FEE_CALC_GAS_PRICE_WEI,
+        }),
+      (e: unknown) => {
+        const msg = e instanceof Error ? e.message : String(e);
+        return /PodERC20: callback exceeds total|totalFee|value/i.test(msg);
+      }
+    );
+    pt("case auto-fee insufficient value: done");
+  });
+
+  it("auto-fee approve: contract computes callback fee internally and round-trips", async function () {
+    pt("case auto-fee approve: start");
+    const allowanceAmt = 1_500n;
+    const [targetWei, callerWei] = (await ctx.base.contracts.inboxSepolia.read.calculateTwoWayFeeRequiredInLocalToken([
+      FEE_EST_REMOTE_CALL_SIZE,
+      FEE_EST_CALLBACK_CALL_SIZE,
+      FEE_EST_REMOTE_EXEC_GAS,
+      FEE_EST_CALLBACK_EXEC_GAS,
+      FEE_CALC_GAS_PRICE_WEI,
+    ])) as [bigint, bigint];
+    const totalValue = paddedPodFee(targetWei + callerWei);
+
+    const itAllow = await encryptAmount(ctx, allowanceAmt);
+    await completePodOpRoundTrip(ctx, "autoAppr", () =>
+      ctx.podAsCoti.write.approve([ctx.bob.address, itAllow], {
+        value: totalValue,
+        gasPrice: FEE_CALC_GAS_PRICE_WEI,
+      })
+    );
+
+    const dec = await readDecryptedAllowance(ctx, ctx.owner, ctx.bob.address);
+    assert.equal(dec.ownerCt, allowanceAmt);
+    assert.equal(dec.spenderCt, allowanceAmt);
+    pt("case auto-fee approve: done");
+  });
+
+  it("plain uint256 transfer round-trips balances", async function () {
+    pt("case plain transfer: start");
+    const start = 2_400n;
+    const sendAmt = 700n;
+    const ownerBefore = await readDecryptedBalance(ctx, ctx.owner);
+    const bobBefore = await readDecryptedBalance(ctx, ctx.bob.address);
+    await mintOnCotiAndSync(ctx, [{ address: ctx.owner, amount: start }], "plainXferFund");
+
+    await completePodOpRoundTrip(ctx, "plainXfer", () =>
+      ctx.podAsCoti.write.transfer(
+        [ctx.bob.address, sendAmt, ctx.base.podTwoWayFees.callbackFeeWei],
+        podTwoWayWriteOptions(ctx.base.podTwoWayFees)
+      )
+    );
+
+    assert.equal(await readDecryptedBalance(ctx, ctx.owner), ownerBefore + start - sendAmt);
+    assert.equal(await readDecryptedBalance(ctx, ctx.bob.address), bobBefore + sendAmt);
+    pt("case plain transfer: done");
+  });
+
+  it("plain uint256 approve + transferFrom round-trip allowance and balances", async function () {
+    pt("case plain approve/transferFrom: start");
+    const start = 5_000n;
+    const allowanceAmt = 2_100n;
+    const spendAmt = 1_300n;
+    const ownerBefore = await readDecryptedBalance(ctx, ctx.owner);
+    const bobBefore = await readDecryptedBalance(ctx, ctx.bob.address);
+    await mintOnCotiAndSync(ctx, [{ address: ctx.owner, amount: start }], "plainApprFund");
+
+    await completePodOpRoundTrip(ctx, "plainAppr", () =>
+      ctx.podAsCoti.write.approve(
+        [ctx.owner, allowanceAmt, ctx.base.podTwoWayFees.callbackFeeWei],
+        podTwoWayWriteOptions(ctx.base.podTwoWayFees)
+      )
+    );
+    const dec = await readDecryptedAllowance(ctx, ctx.owner, ctx.owner);
+    assert.equal(dec.ownerCt, allowanceAmt);
+
+    await completePodOpRoundTrip(ctx, "plainXferFrom", () =>
+      ctx.podAsCoti.write.transferFrom(
+        [ctx.owner, ctx.bob.address, spendAmt, ctx.base.podTwoWayFees.callbackFeeWei],
+        podTwoWayWriteOptions(ctx.base.podTwoWayFees)
+      )
+    );
+
+    assert.equal(await readDecryptedBalance(ctx, ctx.owner), ownerBefore + start - spendAmt);
+    assert.equal(await readDecryptedBalance(ctx, ctx.bob.address), bobBefore + spendAmt);
+    pt("case plain approve/transferFrom: done");
+  });
+
+  it("plain uint256 burn round-trips balance", async function () {
+    pt("case plain burn: start");
+    const start = 1_800n;
+    const burnAmt = 600n;
+    const ownerBefore = await readDecryptedBalance(ctx, ctx.owner);
+    await mintOnCotiAndSync(ctx, [{ address: ctx.owner, amount: start }], "plainBurnFund");
+
+    await completePodOpRoundTrip(ctx, "plainBurn", () =>
+      ctx.podAsCoti.write.burn(
+        [burnAmt, ctx.base.podTwoWayFees.callbackFeeWei],
+        podTwoWayWriteOptions(ctx.base.podTwoWayFees)
+      )
+    );
+
+    assert.equal(await readDecryptedBalance(ctx, ctx.owner), ownerBefore + start - burnAmt);
+    pt("case plain burn: done");
+  });
+
+  it("PodErc20Mintable: minter mints encrypted amount and sync updates PoD", async function () {
+    pt("case mint encrypted: start");
+    const amount = 7_777n;
+    const bobBefore = await readDecryptedBalance(ctx, ctx.bob.address);
+    const itAmount = await encryptAmount(ctx, amount);
+    await completePodOpRoundTrip(ctx, "mintEncrypted", () =>
+      ctx.podAsCoti.write.mint(
+        [ctx.bob.address, itAmount, ctx.base.podTwoWayFees.callbackFeeWei],
+        podTwoWayWriteOptions(ctx.base.podTwoWayFees)
+      )
+    );
+    assert.equal(await readDecryptedBalance(ctx, ctx.bob.address), bobBefore + amount);
+    pt("case mint encrypted: done");
+  });
+
+  it("PodErc20Mintable: minter mints plain uint256 and sync updates PoD", async function () {
+    pt("case mint plain: start");
+    const amount = 4_242n;
+    const bobBefore = await readDecryptedBalance(ctx, ctx.bob.address);
+    await completePodOpRoundTrip(ctx, "mintPlain", () =>
+      ctx.podAsCoti.write.mint(
+        [ctx.bob.address, amount, ctx.base.podTwoWayFees.callbackFeeWei],
+        podTwoWayWriteOptions(ctx.base.podTwoWayFees)
+      )
+    );
+    assert.equal(await readDecryptedBalance(ctx, ctx.bob.address), bobBefore + amount);
+    pt("case mint plain: done");
+  });
+
+  it("PodErc20Mintable: non-minter mint reverts with OnlyMinter", async function () {
+    pt("case OnlyMinter revert: start");
+    const nonMinter = ctx.bob.address;
+    const rogue = await sepoliaViem.deployContract("PodErc20Mintable", [
+      nonMinter,
+      ctx.base.chainIds.coti,
+      ctx.base.contracts.inboxSepolia.address,
+      ctx.podCotiSide.address,
+      "Rogue",
+      "ROGUE",
+    ]);
+    const itAmount = await encryptAmount(ctx, 1n);
+    await assert.rejects(
+      () =>
+        rogue.write.mint(
+          [ctx.bob.address, itAmount, ctx.base.podTwoWayFees.callbackFeeWei],
+          podTwoWayWriteOptions(ctx.base.podTwoWayFees)
+        ),
+      (e: unknown) => {
+        const msg = e instanceof Error ? e.message : String(e);
+        return msg.includes("OnlyMinter");
+      }
+    );
+    pt("case OnlyMinter revert: done");
+  });
+
+  it("base PodERC20 mint reverts with MintNotAllowed", async function () {
+    pt("case MintNotAllowed revert: start");
+    const basePod = await sepoliaViem.deployContract("PodERC20", [
+      ctx.base.chainIds.coti,
+      ctx.base.contracts.inboxSepolia.address,
+      ctx.podCotiSide.address,
+      "Base PoD",
+      "BASE",
+    ]);
+    const itAmount = await encryptAmount(ctx, 1n);
+    await assert.rejects(
+      () =>
+        basePod.write.mint(
+          [ctx.bob.address, itAmount, ctx.base.podTwoWayFees.callbackFeeWei],
+          podTwoWayWriteOptions(ctx.base.podTwoWayFees)
+        ),
+      (e: unknown) => {
+        const msg = e instanceof Error ? e.message : String(e);
+        return msg.includes("MintNotAllowed");
+      }
+    );
+    // Plain mint path must revert too.
+    await assert.rejects(
+      () =>
+        basePod.write.mint(
+          [ctx.bob.address, 1n, ctx.base.podTwoWayFees.callbackFeeWei],
+          podTwoWayWriteOptions(ctx.base.podTwoWayFees)
+        ),
+      (e: unknown) => {
+        const msg = e instanceof Error ? e.message : String(e);
+        return msg.includes("MintNotAllowed");
+      }
+    );
+    pt("case MintNotAllowed revert: done");
   });
 });

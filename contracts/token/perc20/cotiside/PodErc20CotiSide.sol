@@ -78,7 +78,7 @@ contract PodErc20CotiSide is IPodErc20CotiSide, InboxUser, Ownable {
      * @inheritdoc IPodErc20CotiSide
      * @dev Increments {nonce} after mint. **Gotcha:** does not increase ERC-20 `totalSupply` on PoD—supply is a deployment concern.
      */
-    function mint(address to, uint256 amount) external onlyOwner {
+    function ownerMint(address to, uint256 amount) external onlyOwner {
         if (to == address(0)) {
             revert MintToZeroAddress();
         }
@@ -122,6 +122,11 @@ contract PodErc20CotiSide is IPodErc20CotiSide, InboxUser, Ownable {
     }
 
     /// @inheritdoc IPodErc20CotiSide
+    function transferPublic(address from, address to, uint256 value) external override onlyAuthorizedPodTokenMessage {
+        _moveOrBurn(from, to, MpcCore.setPublic256(value), false);
+    }
+
+    /// @inheritdoc IPodErc20CotiSide
     function transferFrom(
         address from,
         address to,
@@ -131,27 +136,50 @@ contract PodErc20CotiSide is IPodErc20CotiSide, InboxUser, Ownable {
     }
 
     /// @inheritdoc IPodErc20CotiSide
+    function transferFromPublic(
+        address from,
+        address to,
+        uint256 value
+    ) external override onlyAuthorizedPodTokenMessage {
+        _moveOrBurn(from, to, MpcCore.setPublic256(value), false);
+    }
+
+    /// @inheritdoc IPodErc20CotiSide
     function approve(
         address owner,
         address spender,
         gtUint256 calldata value
     ) external override onlyAuthorizedPodTokenMessage {
-        if (owner == address(0) || spender == address(0)) {
-            _sendApproveFailureToPod(owner, spender, bytes("PodErc20CotiSide: zero owner or spender"));
-            return;
-        }
+        _approveInternal(owner, spender, _garbledFromCalldata(value));
+    }
 
-        gtUint256 memory garbledAllowance = _garbledFromCalldata(value);
-        _allowanceCiphertext[owner][spender] = MpcCore.offBoard(garbledAllowance);
-
-        ctUint256 memory ciphertextForOwner = MpcCore.offBoardToUser(garbledAllowance, owner);
-        ctUint256 memory ciphertextForSpender = MpcCore.offBoardToUser(garbledAllowance, spender);
-        inbox.respond(abi.encode(owner, ciphertextForOwner, spender, ciphertextForSpender));
+    /// @inheritdoc IPodErc20CotiSide
+    function approvePublic(
+        address owner,
+        address spender,
+        uint256 value
+    ) external override onlyAuthorizedPodTokenMessage {
+        _approveInternal(owner, spender, MpcCore.setPublic256(value));
     }
 
     /// @inheritdoc IPodErc20CotiSide
     function burn(address from, gtUint256 calldata value) external override onlyAuthorizedPodTokenMessage {
         _moveOrBurn(from, address(0), _garbledFromCalldata(value), true);
+    }
+
+    /// @inheritdoc IPodErc20CotiSide
+    function burnPublic(address from, uint256 value) external override onlyAuthorizedPodTokenMessage {
+        _moveOrBurn(from, address(0), MpcCore.setPublic256(value), true);
+    }
+
+    /// @inheritdoc IPodErc20CotiSide
+    function mint(address to, gtUint256 calldata value) external override onlyAuthorizedPodTokenMessage {
+        _mintInternal(to, _garbledFromCalldata(value));
+    }
+
+    /// @inheritdoc IPodErc20CotiSide
+    function mintPublic(address to, uint256 value) external override onlyAuthorizedPodTokenMessage {
+        _mintInternal(to, MpcCore.setPublic256(value));
     }
 
     // --- Private: garbled balance helpers ---
@@ -246,6 +274,56 @@ contract PodErc20CotiSide is IPodErc20CotiSide, InboxUser, Ownable {
         ctUint256 memory recipientBalanceCt = MpcCore.offBoardToUser(recipientBalanceAfter, to);
         ctUint256 memory amountForRecipient = MpcCore.offBoardToUser(amount, to);
         return abi.encode(from, senderBalanceCt, amountForSender, to, recipientBalanceCt, amountForRecipient, callbackNonce);
+    }
+
+    /**
+     * @dev Sets the garbled allowance for `(owner, spender)` and responds with owner/spender ciphertexts,
+     *      or `raise`s if either address is zero (PoD sees `approveError`).
+     */
+    function _approveInternal(
+        address owner,
+        address spender,
+        gtUint256 memory garbledAllowance
+    ) private {
+        if (owner == address(0) || spender == address(0)) {
+            _sendApproveFailureToPod(owner, spender, bytes("PodErc20CotiSide: zero owner or spender"));
+            return;
+        }
+
+        _allowanceCiphertext[owner][spender] = MpcCore.offBoard(garbledAllowance);
+
+        ctUint256 memory ciphertextForOwner = MpcCore.offBoardToUser(garbledAllowance, owner);
+        ctUint256 memory ciphertextForSpender = MpcCore.offBoardToUser(garbledAllowance, spender);
+        inbox.respond(abi.encode(owner, ciphertextForOwner, spender, ciphertextForSpender));
+    }
+
+    /**
+     * @dev Adds `amount` to `to`'s garbled balance and responds with a transfer-callback-shaped tuple where `from == address(0)`.
+     *      On a zero recipient the contract `raise`s so PoD surfaces a `transferError`.
+     */
+    function _mintInternal(address to, gtUint256 memory amount) private {
+        if (to == address(0)) {
+            _sendTransferFailureToPod(address(0), to, bytes("PodErc20CotiSide: mint zero to"));
+            return;
+        }
+
+        gtUint256 memory recipientBefore = _readGarbledBalance(to);
+        gtUint256 memory recipientAfter = MpcCore.add(recipientBefore, amount);
+        _writeGarbledBalance(to, recipientAfter);
+
+        ctUint256 memory zeroCiphertext = _ciphertextPlainZero();
+        inbox.respond(
+            abi.encode(
+                address(0),
+                zeroCiphertext,
+                zeroCiphertext,
+                to,
+                MpcCore.offBoardToUser(recipientAfter, to),
+                MpcCore.offBoardToUser(amount, to),
+                nonce
+            )
+        );
+        nonce++;
     }
 
     function _sendTransferFailureToPod(address from, address to, bytes memory reason) private {

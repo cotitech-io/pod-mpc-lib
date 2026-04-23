@@ -38,8 +38,9 @@ export function getDefaultCotiMineGasPodToken(): bigint {
 
 export type PodTokenTestContext = {
   base: TestContext;
+  /** Deployed as `PodErc20Mintable` with `owner` set as the minter so mint tests can exercise the access-control path. */
   pod: any;
-  /** Same Hardhat `PodERC20` instance, wallet = COTI-funded owner (cross-chain test pattern). */
+  /** Same Hardhat `PodErc20Mintable` instance, wallet = COTI-funded owner (cross-chain test pattern). */
   podAsCoti: any;
   podCotiSide: any;
   owner: `0x${string}`;
@@ -123,8 +124,9 @@ export async function setupPodTokenTestContext(params: {
     { client: { public: base.coti.publicClient, wallet: base.coti.wallet } } as any
   );
 
-  logStep("Deploying PodERC20 on Hardhat");
-  const pod = await params.sepoliaViem.deployContract("PodERC20", [
+  logStep("Deploying PodErc20Mintable on Hardhat (minter = owner)");
+  const pod = await params.sepoliaViem.deployContract("PodErc20Mintable", [
+    owner,
     base.chainIds.coti,
     base.contracts.inboxSepolia.address,
     podCotiSide.address,
@@ -136,7 +138,7 @@ export async function setupPodTokenTestContext(params: {
 
   await podCotiSide.write.setAuthorizedRemote([BigInt(base.chainIds.sepolia), pod.address]);
 
-  const podAsCoti = await params.sepoliaViem.getContractAt("PodERC20", pod.address, {
+  const podAsCoti = await params.sepoliaViem.getContractAt("PodErc20Mintable", pod.address, {
     client: { public: base.sepolia.publicClient, wallet: hardhatCotiWallet },
   });
 
@@ -146,13 +148,13 @@ export async function setupPodTokenTestContext(params: {
   return { base, pod, podAsCoti, podCotiSide, owner, bob };
 }
 
-/** Owner `mint(to, amount)` on `PodErc20CotiSide` (COTI balance ciphertext ledger). Waits for confirmation. */
+/** Owner `ownerMint(to, amount)` on `PodErc20CotiSide` (COTI balance ciphertext ledger). Waits for confirmation. */
 export async function mintOnCoti(
   ctx: PodTokenTestContext,
   to: `0x${string}`,
   amount: bigint
 ): Promise<void> {
-  const txHash = await ctx.podCotiSide.write.mint([to, amount]);
+  const txHash = await ctx.podCotiSide.write.ownerMint([to, amount]);
   await ctx.base.coti.publicClient.waitForTransactionReceipt({ hash: txHash, ...receiptWaitOptions });
 }
 

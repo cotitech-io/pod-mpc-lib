@@ -11,10 +11,21 @@ import "@coti-io/coti-contracts/contracts/utils/mpc/MpcCore.sol";
  */
 interface IPodErc20CotiSide {
     /**
-     * @notice Mints plain `amount` into balance ciphertext storage for `to` (typically owner-only for bridge or test setup).
+     * @notice Owner-only mint of plain `amount` into balance ciphertext storage for `to` (bridge / test setup).
      * @dev Does not automatically update PoD ciphertext; use {syncBalances} on `PodERC20` after minting if mirrors must match.
+     *      Kept distinct from the inbox-called {mint} / {mintPublic} so `.selector` access stays unambiguous.
      */
-    function mint(address to, uint256 amount) external;
+    function ownerMint(address to, uint256 amount) external;
+
+    /**
+     * @notice Inbox-only mint with garbled `value`; responds with a {PodERC20.transferCallback}-shaped tuple so PoD updates `to`'s ciphertext.
+     */
+    function mint(address to, gtUint256 calldata value) external;
+
+    /**
+     * @notice Inbox-only mint using a plain `amount`; COTI garbles via `MpcCore.setPublic256` and responds as in {mint}.
+     */
+    function mintPublic(address to, uint256 amount) external;
 
     /**
      * @notice For each account, `onBoard`s stored balance ciphertext, `offBoardToUser`s to that address, and `respond`s with `(addresses, amounts, nonce)`.
@@ -29,10 +40,20 @@ interface IPodErc20CotiSide {
     function transfer(address from, address to, gtUint256 calldata value) external;
 
     /**
+     * @notice Plain-amount variant of {transfer}; COTI garbles via `MpcCore.setPublic256`.
+     */
+    function transferPublic(address from, address to, uint256 value) external;
+
+    /**
      * @notice Same MPC move as {transfer}; spender allowance is not checked here—`PodERC20` / policy must do that before sending.
      * @dev **Gotcha:** without off-chain or PoD-side enforcement, `transferFrom` is equivalent to `transfer` on COTI.
      */
     function transferFrom(address from, address to, gtUint256 calldata value) external;
+
+    /**
+     * @notice Plain-amount variant of {transferFrom}; same caveats as {transferPublic}.
+     */
+    function transferFromPublic(address from, address to, uint256 value) external;
 
     /**
      * @notice Sets garbled allowance and `respond`s with owner- and spender-specific ciphertext of the same allowance amount.
@@ -41,7 +62,17 @@ interface IPodErc20CotiSide {
     function approve(address owner, address spender, gtUint256 calldata value) external;
 
     /**
+     * @notice Plain-amount variant of {approve}; COTI garbles via `MpcCore.setPublic256`.
+     */
+    function approvePublic(address owner, address spender, uint256 value) external;
+
+    /**
      * @notice Subtracts `value` from `from` and responds with a burn-shaped tuple (`to == 0`, zero ciphertexts for receiver side).
      */
     function burn(address from, gtUint256 calldata value) external;
+
+    /**
+     * @notice Plain-amount variant of {burn}; COTI garbles via `MpcCore.setPublic256`.
+     */
+    function burnPublic(address from, uint256 value) external;
 }
